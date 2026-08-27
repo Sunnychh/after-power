@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEEP_LOCATIONS, deepTargetFlag } from '../game/data/deep-exploration.ts';
+import { DEEP_LOCATIONS } from '../game/data/deep-exploration.ts';
 import { ITEM_MAP } from '../game/data/items.ts';
-import { adjustedDeepLoot, beginDeepExplore, deepOptionDisabledReason, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
+import { adjustedDeepLoot, beginDeepExplore, deepOptionDisabledReason, deepTargetCompletionFlag, hardDeepLootRetention, isDeepTargetResolved, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { loadGame, saveGame } from '../game/engine/save.ts';
 import { absoluteDay, createInitialState } from '../game/engine/state.ts';
@@ -42,7 +42,7 @@ test('缺少工具、技能或情报时给出具体原因，不会消耗状态',
   assert.deepEqual(failed.state, before);
 });
 
-test('不同解法产生不同收获，目标只能领取一次且技能经验可成长', () => {
+test('不同解法产生不同收获，普通目标同日仅一次、隔日刷新且技能经验可成长', () => {
   let quiet = survival('quiet-route');
   quiet.inventory = addItem(quiet.inventory, ITEM_MAP['lockpick-set'], 1, absoluteDay(quiet));
   quiet.explorationSkills.lockpicking = { level: 1, xp: 3 };
@@ -54,8 +54,13 @@ test('不同解法产生不同收获，目标只能领取一次且技能经验�
   assert.equal(inventoryCount(picked.state.inventory, 'batteries'), 2);
   assert.equal(inventoryCount(picked.state.inventory, 'chocolate'), 2);
   assert.equal(picked.state.explorationSkills.lockpicking.xp, 5);
-  assert.ok(picked.state.flags.includes(deepTargetFlag('riverside-market', 'cashier-cage')));
+  const cashierTarget = DEEP_LOCATIONS['riverside-market'].scenes.flatMap((scene) => scene.targets).find((target) => target.id === 'cashier-cage')!;
+  assert.ok(picked.state.flags.includes(deepTargetCompletionFlag('riverside-market', cashierTarget, 2)));
   assert.equal(resolveDeepTarget(picked.state, 'cashier-cage', 'pick').ok, false);
+  const nextDay = structuredClone(picked.state);
+  nextDay.survivalDay = 3;
+  assert.equal(isDeepTargetResolved(nextDay, 'riverside-market', cashierTarget), false);
+  assert.equal(deepOptionDisabledReason(nextDay, 'cashier-cage', 'pick'), null);
 
   let forced = survival('forced-route');
   forced.inventory = addItem(forced.inventory, ITEM_MAP.crowbar, 1, absoluteDay(forced));
@@ -129,6 +134,10 @@ test('变电站控制层支持钥匙与调查路线，且目标效果真实结�
   assert.equal(inventoryCount(resolved.state.inventory, 'sample-tube'), 1);
   assert.equal(inventoryCount(resolved.state.inventory, 'station-key'), 1);
   assert.ok(resolved.state.flags.includes('substation-control-searched'));
+  const controlTarget = DEEP_LOCATIONS['north-substation'].scenes.flatMap((scene) => scene.targets).find((target) => target.id === 'control-core')!;
+  const nextDay = structuredClone(resolved.state);
+  nextDay.survivalDay += 1;
+  assert.equal(isDeepTargetResolved(nextDay, 'north-substation', controlTarget), true);
 
   let routed = survival('substation-route-deep');
   routed.flags.push('substation-route');
@@ -207,4 +216,34 @@ test('困难细化地图按种子削减普通战利品但完整保留剧情物�
   assert.equal(hardStory, normalStory);
   assert.ok(hardRegular <= normalRegular * 0.7, `困难掉落 ${hardRegular}/${normalRegular} 未压到 70% 以下`);
   assert.ok(hardRegular >= normalRegular * 0.5, '困难地图仍应保留可规划的求生路线');
+});
+
+test('困难地图刷新量随封锁日递减，后期单件货格可能为空', () => {
+  assert.equal(hardDeepLootRetention(2), 0.65);
+  assert.equal(hardDeepLootRetention(5), 0.5);
+  assert.equal(hardDeepLootRetention(9), 0.35);
+  assert.equal(hardDeepLootRetention(12), 0.2);
+
+  let earlyTotal = 0;
+  let lateTotal = 0;
+  for (const location of Object.values(DEEP_LOCATIONS)) {
+    for (const scene of location.scenes) {
+      for (const target of scene.targets) {
+        for (const option of target.options) {
+          const key = `${location.id}:${target.id}:${option.id}`;
+          const early = { ...createInitialState('deep-refresh-curve', [], 0, 'hard'), survivalDay: 2 };
+          const late = { ...createInitialState('deep-refresh-curve', [], 0, 'hard'), survivalDay: 12 };
+          earlyTotal += Object.entries(adjustedDeepLoot(early, option.loot, key)).filter(([itemId]) => !ITEM_MAP[itemId].story).reduce((sum, [, quantity]) => sum + quantity, 0);
+          lateTotal += Object.entries(adjustedDeepLoot(late, option.loot, key)).filter(([itemId]) => !ITEM_MAP[itemId].story).reduce((sum, [, quantity]) => sum + quantity, 0);
+        }
+      }
+    }
+  }
+  assert.ok(lateTotal < earlyTotal, `后期刷新 ${lateTotal} 应少于前期 ${earlyTotal}`);
+  let emptySlots = 0;
+  for (let seed = 1; seed <= 30; seed += 1) {
+    const lateSingle = adjustedDeepLoot({ difficulty: 'hard', seed, survivalDay: 12 }, { batteries: 1 }, 'single-shelf');
+    if (!lateSingle.batteries) emptySlots += 1;
+  }
+  assert.ok(emptySlots > 0, '后期单件货格应该存在刷空的确定性种子');
 });

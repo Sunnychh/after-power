@@ -16,6 +16,32 @@ function locationFor(state: GameState) {
   return state.expedition ? DEEP_LOCATIONS[state.expedition.locationId] : undefined;
 }
 
+export function deepTargetRefreshMode(target: { resolvedByFlag?: string; options: DeepTargetOption[] }): 'once' | 'daily' {
+  if (target.resolvedByFlag) return 'once';
+  const containsUniqueStory = target.options.some((option) => Object.keys(option.loot ?? {}).some((itemId) => ITEM_MAP[itemId]?.story));
+  const containsEndingEvidence = target.options.some((option) => option.addFlags?.some((flag) => flag.startsWith('evidence-') || flag === 'substation-control-searched'));
+  return containsUniqueStory || containsEndingEvidence ? 'once' : 'daily';
+}
+
+export function deepTargetCompletionFlag(locationId: string, target: { id: string; resolvedByFlag?: string; options: DeepTargetOption[] }, survivalDay: number): string {
+  return deepTargetRefreshMode(target) === 'once'
+    ? deepTargetFlag(locationId, target.id)
+    : `${deepTargetFlag(locationId, target.id)}:day:${survivalDay}`;
+}
+
+export function isDeepTargetResolved(state: GameState, locationId: string, target: { id: string; resolvedByFlag?: string; options: DeepTargetOption[] }): boolean {
+  if (target.resolvedByFlag && state.flags.includes(target.resolvedByFlag)) return true;
+  return state.flags.includes(deepTargetCompletionFlag(locationId, target, state.survivalDay));
+}
+
+export function hardDeepLootRetention(survivalDay: number): number {
+  const day = Math.max(1, survivalDay);
+  if (day >= 12) return 0.2;
+  if (day >= 9) return 0.35;
+  if (day >= 5) return 0.5;
+  return 0.65;
+}
+
 function reserveReason(state: GameState, minutes: number): string | null {
   const location = locationFor(state);
   if (!location) return '当前不在探索地点内';
@@ -37,8 +63,7 @@ export function deepOptionDisabledReason(state: GameState, targetId: string, opt
   const target = scene?.targets.find((entry) => entry.id === targetId);
   const option = target?.options.find((entry) => entry.id === optionId);
   if (!location || !scene || !target || !option) return '这个处理方式当前不可用';
-  if (state.flags.includes(deepTargetFlag(location.id, target.id))) return '这里已经处理完毕';
-  if (target.resolvedByFlag && state.flags.includes(target.resolvedByFlag)) return '这里已经处理完毕';
+  if (isDeepTargetResolved(state, location.id, target)) return deepTargetRefreshMode(target) === 'once' ? '这个剧情目标已经永久处理完毕' : '这个搜刮点今天已经处理过，明天会刷新';
   for (const requirement of option.requirements ?? []) {
     if (requirement.item && inventoryCount(state.inventory, requirement.item) < (requirement.quantity ?? 1)) {
       return `缺少 ${ITEM_MAP[requirement.item]?.name ?? requirement.item}${(requirement.quantity ?? 1) > 1 ? ` ×${requirement.quantity}` : ''}`;
@@ -76,7 +101,8 @@ export function beginDeepExplore(state: GameState, locationId: string): EngineRe
   if (danger.severity === 'minor') next = applyEffect(next, { stats: { stamina: -5, health: -2 } }, `前往${location.name}`);
   if (danger.severity === 'major') next = applyEffect(next, { stats: { stamina: -9, health: -7 }, injury: '外伤' }, `前往${location.name}`);
   next.expedition = { locationId, sceneId: location.entrance, startedAtMinutes: state.clockMinutes, discoveredScenes: [location.entrance], gathered: [] };
-  next.logs.push(createLog(next, `进入 · ${location.name}`, `你抵达${location.name}，把回程所需的 ${formatDuration(location.returnMinutes)} 单独留了出来。${describeDanger(danger)} 这里共有 ${location.scenes.length} 个内部区域；只要返回入口并撤离，就不会因为缺少某件工具卡在里面。`, danger.severity === 'major' ? 'bad' : 'story'));
+  const dailyTargets = location.scenes.flatMap((scene) => scene.targets).filter((target) => deepTargetRefreshMode(target) === 'daily' && !isDeepTargetResolved(next, location.id, target)).length;
+  next.logs.push(createLog(next, `进入 · ${location.name}`, `你抵达${location.name}，把回程所需的 ${formatDuration(location.returnMinutes)} 单独留了出来。${describeDanger(danger)} 这里共有 ${location.scenes.length} 个内部区域，今日仍有 ${dailyTargets} 个普通搜刮点可处理；剧情证据不会刷新。只要返回入口并撤离，就不会因为缺少某件工具卡在里面。`, danger.severity === 'major' ? 'bad' : 'story'));
   return completeTimedAction(next, location.travelMinutes, 'survival:deep-travel');
 }
 
@@ -100,7 +126,7 @@ export function moveDeepExplore(state: GameState, sceneId: string): EngineResult
 }
 
 export function adjustedDeepLoot(
-  state: Pick<GameState, 'difficulty' | 'seed'>,
+  state: Pick<GameState, 'difficulty' | 'seed'> & Partial<Pick<GameState, 'survivalDay'>>,
   loot: Record<string, number> | undefined,
   targetKey: string,
 ): Record<string, number> {
@@ -115,11 +141,13 @@ export function adjustedDeepLoot(
   }
   if (!regularUnits.length) return result;
 
-  let keepCount = Math.max(1, Math.round(regularUnits.length * 0.65));
+  const day = Math.max(1, state.survivalDay ?? 1);
+  const retention = hardDeepLootRetention(day);
+  let keepCount = Math.round(regularUnits.length * retention);
   if (regularUnits.length === 1) {
-    keepCount = normalizeSeed(`${state.seed}:${targetKey}:hard-loot-single`) % 100 < 65 ? 1 : 0;
+    keepCount = normalizeSeed(`${state.seed}:${day}:${targetKey}:hard-loot-single`) % 100 < retention * 100 ? 1 : 0;
   }
-  let seed = normalizeSeed(`${state.seed}:${targetKey}:hard-loot-order`);
+  let seed = normalizeSeed(`${state.seed}:${day}:${targetKey}:hard-loot-order`);
   const shuffled = [...regularUnits];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
     const roll = randomInt(seed, 0, index);
@@ -192,14 +220,14 @@ export function resolveDeepTarget(state: GameState, targetId: string, optionId: 
   const loot = collectLoot(next, option.loot, `${location.id}:${target.id}:${option.id}`);
   const skillText = Object.entries(option.skillXp ?? {}).map(([skill, amount]) => gainSkill(next, skill as ExplorationSkillId, amount ?? 0)).join('');
   for (const flag of option.addFlags ?? []) addFlag(next, flag);
-  addFlag(next, deepTargetFlag(location.id, target.id));
+  addFlag(next, deepTargetCompletionFlag(location.id, target, next.survivalDay));
   const lootText = loot.found.length
     ? `带上：${loot.found.join('、')}。`
     : loot.scarce.length
       ? '能用的货格已经被先来者取空。'
       : '背包已满，没能带走物资。';
   const leftText = loot.left.length ? ` 负重不足，留下：${loot.left.join('、')}。` : '';
-  const scarceText = loot.scarce.length ? ` 困难模式下，这里已有部分货格被先来者取空：${loot.scarce.join('、')}。` : '';
+  const scarceText = loot.scarce.length ? ` 困难模式第 ${next.survivalDay} 天，这批刷新物资已有部分被先来者取空：${loot.scarce.join('、')}。` : '';
   next.logs.push(createLog(next, `${scene.name} · ${target.name}`, `${option.result}${dangerText} ${lootText}${leftText}${scarceText} ${skillText}`, tone));
   return completeTimedAction(next, option.minutes, 'survival:deep-action');
 }
@@ -216,7 +244,7 @@ export function leaveDeepExplore(state: GameState): EngineResult {
   next.expedition = undefined;
   next.visited[location.id] = (next.visited[location.id] ?? 0) + 1;
   next = applyEffect(next, { stats: { stamina: -3 } }, '返程');
-  next.logs.push(createLog(next, `返回 · ${location.name}`, `你沿原路回到避难所。本次进入 ${discovered}/${location.scenes.length} 个区域；${gathered.length ? `带回 ${gathered.join('、')}` : '没有带回新物资'}。尚未处理的目标会保留到下次。`, 'good'));
+  next.logs.push(createLog(next, `返回 · ${location.name}`, `你沿原路回到避难所。本次进入 ${discovered}/${location.scenes.length} 个区域；${gathered.length ? `带回 ${gathered.join('、')}` : '没有带回新物资'}。尚未处理的目标今天仍会保留；普通搜刮点会在下一封锁日刷新，剧情目标永久记录。`, 'good'));
   return completeTimedAction(next, location.returnMinutes, 'survival:explore');
 }
 

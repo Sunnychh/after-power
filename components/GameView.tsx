@@ -8,7 +8,7 @@ import { EVENT_MAP } from '../game/data/events.ts';
 import { formatItemEffects, STORE_DESCRIPTIONS, STORE_NAMES } from '../game/data/items.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { LOAN_MAP } from '../game/data/loans.ts';
-import { DEEP_LOCATIONS, deepScene, deepTargetFlag } from '../game/data/deep-exploration.ts';
+import { DEEP_LOCATIONS, deepScene } from '../game/data/deep-exploration.ts';
 import { POWER_POLICIES } from '../game/data/power.ts';
 import { activeContactLimit, survivalPressure } from '../game/data/pressure.ts';
 import {
@@ -38,7 +38,7 @@ import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount
 import { dangerRisk } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
 import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
-import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, EXPLORATION_SKILL_LABELS, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
+import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, deepTargetRefreshMode, EXPLORATION_SKILL_LABELS, hardDeepLootRetention, isDeepTargetResolved, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
 import { nextSiegeWave, siegeDamage, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
 import { dailyTradeOffers, executeTrade, tradeItemsText, tradeOfferDisabledReason, TRADE_MINUTES } from '../game/engine/trades.ts';
@@ -167,7 +167,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       ];
     }
     if (state.expedition && expeditionLocation && expeditionScene) {
-      if (selectedTarget && !state.flags.includes(deepTargetFlag(expeditionLocation.id, selectedTarget.id))) {
+      if (selectedTarget && !isDeepTargetResolved(state, expeditionLocation.id, selectedTarget)) {
         return [
           ...selectedTarget.options.map((option) => ({
             id: `${selectedTarget.id}-${option.id}`,
@@ -181,12 +181,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         ];
       }
       const targets: ActionChoice[] = expeditionScene.targets.map((target) => {
-        const resolved = state.flags.includes(deepTargetFlag(expeditionLocation.id, target.id));
+        const resolved = isDeepTargetResolved(state, expeditionLocation.id, target);
+        const refreshMode = deepTargetRefreshMode(target);
         return {
           id: `inspect-${target.id}`,
-          label: resolved ? `已处理 · ${target.name}` : `查看 · ${target.name}`,
-          hint: resolved ? '这里已经搜查完毕，所得物资不会重复生成' : target.observation,
-          disabledReason: resolved ? '已经处理完毕' : undefined,
+          label: resolved ? `${refreshMode === 'daily' ? '今日已处理' : '已处理'} · ${target.name}` : `查看 · ${target.name}`,
+          hint: resolved ? refreshMode === 'daily' ? '这个普通搜刮点会在下一封锁日刷新' : '剧情目标已经永久处理，证据不会重复生成' : `${target.observation}${refreshMode === 'daily' ? '（普通搜刮点每日刷新）' : '（唯一剧情目标）'}`,
+          disabledReason: resolved ? refreshMode === 'daily' ? '今天已经处理过' : '已经永久处理完毕' : undefined,
           onSelect: () => setSelectedTargetId(target.id),
         };
       });
@@ -294,7 +295,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         return {
           id: location.id,
           label: `深入探索 · ${location.name}`,
-          hint: `${location.district} · 去程 ${formatDuration(deepLocation.travelMinutes)} / 回程 ${formatDuration(deepLocation.returnMinutes)} · ${deepLocation.scenes.length} 个内部区域 · ${state.visited[location.id] ? `已撤离 ${state.visited[location.id]} 次` : '尚未进入'}`,
+          hint: `${location.district} · 去程 ${formatDuration(deepLocation.travelMinutes)} / 回程 ${formatDuration(deepLocation.returnMinutes)} · 普通搜刮点每日刷新${state.difficulty === 'hard' ? `，当前物资留存约 ${Math.round(hardDeepLootRetention(state.survivalDay) * 100)}%` : ''} · ${state.visited[location.id] ? `已撤离 ${state.visited[location.id]} 次` : '尚未进入'}`,
           danger: `${dangerRisk(state, approachRisk).risk}% 路途受险`,
           disabledReason: deepStartDisabledReason(state, location.id),
           onSelect: () => run(beginDeepExplore(state, location.id)),
