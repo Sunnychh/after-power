@@ -7,6 +7,8 @@ import { batchExpiryStatus, inventoryCount } from '../game/engine/inventory.ts';
 import { inventorySummary } from '../game/engine/actions.ts';
 import { absoluteDay } from '../game/engine/state.ts';
 import type { GameState } from '../game/types.ts';
+import { POWER_POLICY_MAP } from '../game/data/power.ts';
+import { projectedPowerNights } from '../game/engine/power.ts';
 
 export function InventoryPanel({ state, open, onClose, onUse }: {
   state: GameState;
@@ -17,6 +19,8 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
   const [tab, setTab] = useState<'inventory' | 'shelter'>('inventory');
   const summary = inventorySummary(state);
   const currentDay = absoluteDay(state);
+  const powerPolicy = POWER_POLICY_MAP[state.powerPolicy];
+  const powerNights = projectedPowerNights(state);
   const entries = Object.keys(state.inventory)
     .map((id) => ITEM_MAP[id])
     .filter(Boolean)
@@ -82,6 +86,8 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             <div><dt>备用电力</dt><dd>{state.shelter.power} 单位</dd></div>
             <div><dt>燃料储备</dt><dd>{state.shelter.fuel} 单位</dd></div>
             <div><dt>供电改造</dt><dd>等级 {state.shelter.generator}</dd></div>
+            <div><dt>夜间负载</dt><dd>{powerPolicy.name} · 约 {powerPolicy.expectedPower} 电/夜</dd></div>
+            <div><dt>预计续航</dt><dd>{powerNights === null ? '已关闭供电' : `约 ${powerNights} 夜`}</dd></div>
             <div><dt>料理技能</dt><dd>{state.cookingSkill} / 5 级 · 尝试 {state.cookingAttempts} 次</dd></div>
           </dl>
           <section className="furniture-section" aria-labelledby="furniture-title">

@@ -10,6 +10,7 @@ import { shoppingCarryCapacity, shoppingCarryRemaining, storePurchaseKey, storeS
 import { completeTimedAction, endDay, type EngineResult } from './day.ts';
 import { dailyActionBlockedReason, recordDailyAction } from './daily.ts';
 import { isNpcUnlocked, nextBroadcastContact } from './npcs.ts';
+import { powerUpgradeSpec } from './power.ts';
 import { timeDisabledReason } from './time.ts';
 import {
   absoluteDay,
@@ -180,12 +181,17 @@ export function purchaseItem(state: GameState, itemId: string, quantity = 1): Re
   return { state: next, ok: true };
 }
 
-export type PrepActionId = 'work' | 'reinforce' | 'water' | 'power' | 'investigate' | 'contact' | 'rest';
+export type PrepActionId = 'work' | 'reinforce' | 'water' | 'power' | 'drill' | 'investigate' | 'contact' | 'rest';
 
 export function performPrepAction(state: GameState, action: PrepActionId): Result {
   if (state.phase !== 'prep') return { state, ok: false, message: '灾前行动已经结束。' };
+  const powerUpgrade = action === 'power' ? powerUpgradeSpec(state) : null;
+  if (action === 'power' && !powerUpgrade) return { state, ok: false, message: '备用供电已经完成三级改造。' };
+  if (action === 'drill' && state.shelter.generator < 1) return { state, ok: false, message: '先完成一级供电改造，才能进行停电演练。' };
+  if (action === 'drill' && hasFlag(state, 'power-audited')) return { state, ok: false, message: '本轮已经完成过停电演练。' };
   const specs: Record<PrepActionId, { minutes: number; money?: number }> = {
-    work: { minutes: 240 }, reinforce: { minutes: 180, money: 70 }, water: { minutes: 180, money: 90 }, power: { minutes: 180, money: 110 },
+    work: { minutes: 240 }, reinforce: { minutes: 180, money: 70 }, water: { minutes: 180, money: 90 },
+    power: { minutes: powerUpgrade?.minutes ?? 0, money: powerUpgrade?.money ?? 0 }, drill: { minutes: 90 },
     investigate: { minutes: 120 }, contact: { minutes: 90 }, rest: { minutes: 120 },
   };
   const spec = specs[action];
@@ -198,19 +204,21 @@ export function performPrepAction(state: GameState, action: PrepActionId): Resul
     work: { money: 170, stats: { stamina: -18, morale: -3 } },
     reinforce: { money: -70, shelter: { integrity: 15, reinforcement: 1 }, stats: { stamina: -8 } },
     water: { money: -90, shelter: { water: 18, storage: 5 }, stats: { stamina: -6 } },
-    power: { money: -110, shelter: { power: 8, generator: 1 }, stats: { stamina: -7 } },
+    power: { money: -(powerUpgrade?.money ?? 0), shelter: { power: powerUpgrade?.power ?? 0, generator: 1 }, stats: { stamina: -7 } },
+    drill: { shelter: { power: 2 }, intel: 1, stats: { stamina: -4 }, addFlags: ['power-audited'] },
     investigate: { intel: 1, stats: { stamina: -6, morale: -1 } },
     contact: { stats: { morale: 3 }, addFlags: ['prep-neighbor-contact'] },
     rest: { stats: { stamina: 25, morale: 5 } },
   };
   const titles: Record<PrepActionId, string> = {
-    work: '临时加班', reinforce: '加固门窗', water: '改造储水', power: '接入备用供电', investigate: '核对封锁情报', contact: '联系邻居', rest: '提前休息',
+    work: '临时加班', reinforce: '加固门窗', water: '改造储水', power: powerUpgrade?.name ?? '接入备用供电', drill: '全屋停电演练', investigate: '核对封锁情报', contact: '联系邻居', rest: '提前休息',
   };
   const bodies: Record<PrepActionId, string> = {
     work: '你把不安藏在表格后面，多接了一份当天结算的工作。',
     reinforce: '木楔、门链和新螺丝把门框变得更可靠。',
     water: '你清洗水箱、换掉软管，并把每个容器都标上日期。',
-    power: '备用电路完成切换测试。它不宽裕，但能让收音机和一盏灯工作。',
+    power: `第 ${powerUpgrade?.level ?? state.shelter.generator} 级供电改造完成。电工把冰箱、照明和厨房电器分到不同回路，新增 ${powerUpgrade?.power ?? 0} 点可调度备用电。`,
+    drill: '你拉下总闸，让屋里提前黑了一次。测试中找出一只漏电插排，也确认了冰箱、夜灯和收音机不能同时肆意使用；整理旧电芯后回收了 2 点电力。',
     investigate: '你把碎片消息按时间排列，找到一个官方通知没解释的空白。',
     contact: '你没有写姓名，只在每户门缝下留了一张纸条：“真停电的话，收音机调到社区频段。”',
     rest: '你强迫自己离开清单。提前睡下也是准备的一部分。',

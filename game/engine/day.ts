@@ -1,5 +1,6 @@
 import { DIFFICULTY_MAP } from '../data/difficulties.ts';
 import { ITEM_MAP, ITEMS } from '../data/items.ts';
+import { POWER_POLICY_MAP } from '../data/power.ts';
 import type { GameState, Inventory, ItemDefinition } from '../types.ts';
 import { createDailySettlement, dailyActionBlockedReason, recordDailyAction } from './daily.ts';
 import { determineOutcome, finishRun } from './outcomes.ts';
@@ -120,20 +121,55 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
     consumed.push('水箱储水');
   }
 
+  const policy = POWER_POLICY_MAP[next.powerPolicy];
+  const powerBefore = next.shelter.power;
+  const hasPerishables = Object.values(next.inventory).some((batches) => batches.some((batch) => batch.expiresOn !== undefined));
+  let powerText = '';
   let fridgeText = '';
-  if (next.furniture.fridge.enabled && next.shelter.power >= 1) {
-    const cold = extendColdStorage(next.inventory, absoluteDay(next));
-    next.inventory = cold.inventory;
-    next = applyEffect(next, { shelter: { power: -1 } }, '冰箱夜间保鲜');
-    next.furniture.fridge.lastUsedDay = absoluteDay(next);
-    fridgeText = cold.preserved ? `冰箱为 ${cold.preserved} 件易腐物资延长了 1 天保质期。` : '冰箱保持低功率运行。';
-  } else if (Object.values(next.inventory).some((batches) => batches.some((batch) => batch.expiresOn !== undefined))) {
-    fridgeText = '冰箱没有电，易腐物资继续自然变质。';
+  if (next.powerPolicy === 'balanced') {
+    if (next.furniture.fridge.enabled && hasPerishables && next.shelter.power >= 1) {
+      const cold = extendColdStorage(next.inventory, absoluteDay(next));
+      next.inventory = cold.inventory;
+      next = applyEffect(next, { shelter: { power: -1 } }, '均衡供电 · 冰箱');
+      next.furniture.fridge.lastUsedDay = absoluteDay(next);
+      fridgeText = `冰箱为 ${cold.preserved} 件易腐物资延长了 1 天保质期。`;
+    } else if (hasPerishables) fridgeText = '冷藏回路未能启动，易腐物资继续自然变质。';
+    if (next.shelter.power >= 1) {
+      next = applyEffect(next, { shelter: { power: -1 }, stats: { morale: 2 } }, '均衡供电 · 夜灯');
+      powerText = '夜灯亮到入睡，精神 +2。';
+    } else {
+      next = applyEffect(next, { stats: { morale: -3 } }, '供电不足');
+      powerText = '剩余电力不足以点亮夜灯，精神 -3。';
+    }
+  } else if (next.powerPolicy === 'cold') {
+    if (next.furniture.fridge.enabled && next.shelter.power >= 2) {
+      let cold = extendColdStorage(next.inventory, absoluteDay(next));
+      cold = extendColdStorage(cold.inventory, absoluteDay(next));
+      next.inventory = cold.inventory;
+      next = applyEffect(next, { shelter: { power: -2 }, stats: { morale: -1 } }, '保鲜优先');
+      next.furniture.fridge.lastUsedDay = absoluteDay(next);
+      fridgeText = hasPerishables ? `独立冷藏回路为易腐物资额外争取了 2 天，精神 -1。` : '冰箱整夜空转；没有易腐物需要保鲜，精神 -1。';
+    } else {
+      next = applyEffect(next, { stats: { morale: -4 } }, '保鲜供电失败');
+      fridgeText = '电力不足 2 点，冰箱没有启动，黑暗使精神 -4。';
+    }
+  } else if (next.powerPolicy === 'light') {
+    if (next.shelter.power >= 2) {
+      next = applyEffect(next, { shelter: { power: -2 }, stats: { morale: 5, stamina: 3 } }, '照明优先');
+      powerText = '工作灯与充电排插运行整夜，精神 +5、体力 +3。';
+    } else if (next.shelter.power === 1) {
+      next = applyEffect(next, { shelter: { power: -1 }, stats: { morale: 1 } }, '照明优先 · 低电量');
+      powerText = '只够维持一盏昏暗小灯，精神 +1。';
+    } else {
+      next = applyEffect(next, { stats: { morale: -4 } }, '照明供电失败');
+      powerText = '照明回路无法启动，精神 -4。';
+    }
+    if (hasPerishables) fridgeText = '冰箱按策略关闭，易腐物资继续自然变质。';
+  } else {
+    next = applyEffect(next, { stats: { morale: -4 } }, '彻底节电');
+    powerText = '你主动关闭所有备用回路，精神 -4。';
+    if (hasPerishables) fridgeText = '冰箱断电，易腐物资继续自然变质。';
   }
-
-  const hadNightLight = next.shelter.power > 0;
-  if (hadNightLight) next = applyEffect(next, { shelter: { power: -1 }, stats: { morale: 2 } }, '夜间照明');
-  else next = applyEffect(next, { stats: { morale: -3 } }, '完全停电');
 
   const shelterDamage = (amount: number) => -Math.max(1, Math.round(amount * config.shelterDamageMultiplier));
   if (next.weather === '闷热') next = applyEffect(next, { stats: { hydration: -Math.round(7 * config.nightCostMultiplier), stamina: -3 } }, '闷热天气');
@@ -151,7 +187,7 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   next.logs = [...next.logs, createLog(
     next,
     `${next.weather} · 夜间结算`,
-    `基础消耗：饱腹 -${foodDrain}，水分 -${waterDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}${hadNightLight ? '留了一盏灯。' : '屋里整夜没有电。'}${fridgeText}`,
+    `基础消耗：饱腹 -${foodDrain}，水分 -${waterDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}供电策略：${policy.name}，电力 ${powerBefore} → ${next.shelter.power}。${powerText}${fridgeText}`,
     next.stats.health < 35 ? 'bad' : 'system',
   )];
 

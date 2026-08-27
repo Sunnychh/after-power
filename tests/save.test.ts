@@ -21,6 +21,20 @@ test('存档可完整恢复待处理事件与随机状态', () => {
   assert.deepEqual(loadGame(storage), state);
 });
 
+test('旧存档缺少供电策略或含旧式高等级时会安全折算', () => {
+  const storage = new MemoryStorage();
+  const state = createInitialState('power-save-normalize');
+  state.shelter.generator = 7;
+  state.shelter.power = 31;
+  const legacyShape = structuredClone(state) as unknown as Record<string, unknown>;
+  delete legacyShape.powerPolicy;
+  storage.setItem(GAME_SAVE_KEY, JSON.stringify(legacyShape));
+  const restored = loadGame(storage)!;
+  assert.equal(restored.powerPolicy, 'balanced');
+  assert.equal(restored.shelter.generator, 3);
+  assert.equal(restored.shelter.power, 31);
+});
+
 test('存档可恢复贷款余额、还款与催收进度', () => {
   const storage = new MemoryStorage();
   const state = createInitialState('debt-save', [], 0, 'normal', false, 'bridge');

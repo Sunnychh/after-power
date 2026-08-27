@@ -29,9 +29,9 @@ export const DAILY_WISHES: DailyWishDefinition[] = [
     id: 'prep-home',
     phase: 'prep',
     name: '让屋子更能撑',
-    description: '完成门窗加固、储水改造或备用供电中的任意一项。',
+    description: '完成门窗加固、储水改造、备用供电或停电演练中的任意一项。',
     rewardPoints: 2,
-    matchingActions: ['prep:reinforce', 'prep:water', 'prep:power'],
+    matchingActions: ['prep:reinforce', 'prep:water', 'prep:power', 'prep:drill'],
   },
   {
     id: 'prep-contact',

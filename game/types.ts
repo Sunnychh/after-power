@@ -2,6 +2,7 @@ export type Phase = 'prep' | 'survival' | 'ended';
 export type Weather = '晴冷' | '闷热' | '酸雨' | '暴雨' | '大雾' | '寒潮';
 export type DifficultyId = 'easy' | 'normal' | 'hard';
 export type LoanTier = 'none' | 'bridge' | 'desperate';
+export type PowerPolicy = 'balanced' | 'cold' | 'light' | 'off';
 
 export type StatKey = 'satiety' | 'hydration' | 'health' | 'morale' | 'stamina';
 export type ShelterKey = 'integrity' | 'water' | 'power' | 'fuel' | 'reinforcement' | 'storage' | 'generator';
@@ -230,6 +231,7 @@ export interface GameState {
   debt?: DebtState;
   stats: CoreStats;
   shelter: ShelterState;
+  powerPolicy: PowerPolicy;
   furniture: FurnitureState;
   inventory: Inventory;
   carryCapacity: number;

@@ -83,6 +83,8 @@ function hasValidCore(state: Partial<GameState> | null): state is GameState {
 function removeStaleBatches(state: GameState): GameState {
   const next = structuredClone(state);
   if (typeof next.autoRations !== 'boolean') next.autoRations = next.difficulty === 'easy';
+  if (!['balanced', 'cold', 'light', 'off'].includes(next.powerPolicy)) next.powerPolicy = 'balanced';
+  next.shelter.generator = Math.min(3, Math.max(0, Number.isFinite(next.shelter.generator) ? next.shelter.generator : 0));
   if (!Number.isFinite(next.cookingAttempts)) next.cookingAttempts = 0;
   if (!Number.isFinite(next.cookingSkill)) next.cookingSkill = Math.min(5, Math.floor(next.cookingAttempts / 3));
   if (!next.explorationSkills || typeof next.explorationSkills !== 'object') {

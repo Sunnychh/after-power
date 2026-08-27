@@ -8,6 +8,7 @@ import { formatItemEffects, STORE_DESCRIPTIONS, STORE_NAMES } from '../game/data
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { LOAN_MAP } from '../game/data/loans.ts';
 import { DEEP_LOCATIONS, deepScene, deepTargetFlag } from '../game/data/deep-exploration.ts';
+import { POWER_POLICIES } from '../game/data/power.ts';
 import {
   availableStoreItems,
   endDay,
@@ -37,13 +38,14 @@ import { dangerRisk } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
 import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
 import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, EXPLORATION_SKILL_LABELS, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
+import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
 import { Modal } from './Modal.tsx';
 import { StatusBar, StatusDock } from './StatusBar.tsx';
 
-type Mode = 'main' | 'shops' | 'explore' | 'craft' | 'trade';
+type Mode = 'main' | 'shops' | 'explore' | 'craft' | 'trade' | 'power';
 type EngineResult = { state: GameState; ok: boolean; message?: string };
 
 const TUTORIAL = [
@@ -211,6 +213,33 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         }));
         return [...storeChoices, { id: 'back', label: '返回准备清单', hint: '不耗时', onSelect: () => setMode('main') }];
       }
+      if (mode === 'power') {
+        const upgrade = powerUpgradeSpec(state);
+        return [
+          ...(upgrade ? [{
+            id: 'power-upgrade',
+            label: `${upgrade.name} · 升至 ${upgrade.level} 级`,
+            hint: `${formatDuration(upgrade.minutes)} · ¥${upgrade.money} · 备用电力 +${upgrade.power}`,
+            disabledReason: timedReason(state, upgrade.minutes) ?? (state.money < upgrade.money ? `金钱不足（需要 ¥${upgrade.money}）` : null),
+            onSelect: () => run(performPrepAction(state, 'power')),
+          }] : [{ id: 'power-max', label: '供电改造已满级', hint: '冰箱、照明与厨房电器已经分路管理', disabledReason: '本轮无法继续升级', onSelect: () => undefined }]),
+          {
+            id: 'power-drill', label: '进行全屋停电演练', hint: '1小时30分 · 情报 +1 · 回收电力 +2 · 提前发现用电冲突',
+            disabledReason: timedReason(state, 90) ?? (state.shelter.generator < 1 ? '需要供电改造等级 1' : state.flags.includes('power-audited') ? '本轮已经演练过' : null),
+            onSelect: () => run(performPrepAction(state, 'drill')),
+          },
+          ...POWER_POLICIES.map((policy) => {
+            const policyNights = policy.expectedPower === 0 ? null : Math.floor(state.shelter.power / policy.expectedPower);
+            return {
+              id: `policy-${policy.id}`, label: `${state.powerPolicy === policy.id ? '当前 · ' : ''}${policy.name}`,
+              hint: `预计每晚 ${policy.expectedPower} 电 · ${policy.description}${policyNights === null ? ' 当前可无限期节电。' : ` 按当前电量约 ${policyNights} 夜。`}`,
+              disabledReason: state.powerPolicy === policy.id ? '正在采用' : undefined,
+              onSelect: () => run(setPowerPolicy(state, policy.id)),
+            };
+          }),
+          { id: 'back', label: '返回准备清单', hint: '不耗时', onSelect: () => setMode('main') },
+        ];
+      }
       const prep = (id: PrepActionId, label: string, hint: string, minutes: number, extra?: string | null): ActionChoice => ({
         id,
         label,
@@ -230,7 +259,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         },
         prep('reinforce', '加固门窗', '¥70 · 完整度 +15', 180, state.money < 70 ? '金钱不足（需要 ¥70）' : null),
         prep('water', '改造储水', '¥90 · 储水 +18', 180, state.money < 90 ? '金钱不足（需要 ¥90）' : null),
-        prep('power', '改善供电', '¥110 · 备用电力 +8', 180, state.money < 110 ? '金钱不足（需要 ¥110）' : null),
+        { id: 'power', label: '规划备用供电', hint: `改造、停电演练与夜间负载 · 当前 ${state.shelter.power} 电`, onSelect: () => setMode('power') },
         prep('investigate', '调查灾难情报', '情报 +1 · 降低探索危险', 120),
         prep('contact', '给邻居逐户留言', '灾后首次建立广播联络时获得初始信任', 90),
         prep('rest', '休息片刻', '体力 +25 · 精神 +5', 120),
@@ -301,6 +330,21 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
       ];
     }
+    if (mode === 'power') {
+      return [
+        { id: 'generator', label: '启动备用电源', hint: '30分钟 · 燃料 3 → 电力 +9', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '灾前未完成供电改造' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
+        ...POWER_POLICIES.map((policy) => {
+          const policyNights = policy.expectedPower === 0 ? null : Math.floor(state.shelter.power / policy.expectedPower);
+          return {
+            id: `policy-${policy.id}`, label: `${state.powerPolicy === policy.id ? '当前 · ' : ''}${policy.name}`,
+            hint: `预计每晚 ${policy.expectedPower} 电 · ${policy.description}${policyNights === null ? ' 当前策略不消耗电。' : ` 当前电量约可维持 ${policyNights} 夜。`}`,
+            disabledReason: state.powerPolicy === policy.id ? '正在采用' : undefined,
+            onSelect: () => run(setPowerPolicy(state, policy.id)),
+          };
+        }),
+        { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
+      ];
+    }
     const radioMinutes = state.shelter.power >= 2 || inventoryCount(state.inventory, 'batteries') > 0 ? 60 : 120;
     const truthDay = difficultyConfig.truthDecisionDay;
     return [
@@ -310,7 +354,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       { id: 'radio', label: '收听广播', hint: `${formatDuration(radioMinutes)} · 优先耗电 2 或电池 1`, disabledReason: timedReason(state, radioMinutes) ?? (inventoryCount(state.inventory, 'radio') < 1 ? '缺少短波收音机' : null), onSelect: () => run(performSurvivalAction(state, 'radio')) },
       { id: 'trade', label: state.debt ? '交易与偿还债务' : '与幸存者交易', hint: state.debt ? `交换物资，或处理 ¥${state.debt.balance} 未结贷款` : '用稀缺物资交换水或药品', disabledReason: timedReason(state, 30), onSelect: () => setMode('trade') },
       { id: 'explore', label: '外出探索', hint: `4小时 · 选择 6 个地点之一 · ${state.difficulty === 'easy' ? '简易额外战利品 +1' : '危险受状态影响'}`, disabledReason: timedReason(state, 240), onSelect: () => setMode('explore') },
-      { id: 'generator', label: '启动备用电源', hint: '30分钟 · 燃料 3 → 电力 +9', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '未完成供电改造' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
+      { id: 'power', label: '供电与夜间负载', hint: `当前 ${state.shelter.power} 电 · 调整保鲜、照明或节电策略`, onSelect: () => setMode('power') },
       ...(state.survivalDay >= truthDay && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') ? [{ id: 'truth', label: '搭建外联中继', hint: '3小时 · 每轮只有一次发送窗口；失败后仍可普通撤离', disabledReason: truthEndingReady(state) ? timedReason(state, 180) : `需要证据 3（${truthEvidenceCount(state)}）、盟友 2（${trustedNpcCount(state)}）与已解码广播`, danger: `${dangerRisk(state, 46).risk}% 受险`, onSelect: () => run(performSurvivalAction(state, 'truth')) }] : []),
       { id: 'end', label: '就寝并进行夜间结算', hint: `现在 ${formatClock(state.clockMinutes)} · 尚余 ${formatDuration(minutesRemaining(state))}`, onSelect: () => run(endDay(state)) },
     ];
@@ -334,7 +378,9 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                       ? '选择探索地点'
                       : mode === 'craft'
                         ? '家具、烹饪与制作'
-                        : '选择交换方式';
+                        : mode === 'power'
+                          ? '备用供电与夜间负载'
+                          : '选择交换方式';
   const actionSubtitle = state.dailySettlement
     ? state.dailySettlement.wishAchieved
       ? `愿望点余额 ${state.dailyPoints} · 选择一项今日奖励`

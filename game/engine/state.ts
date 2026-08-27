@@ -109,6 +109,7 @@ export function createInitialState(
       generator: 0,
       ...difficultyConfig.startingShelter,
     },
+    powerPolicy: 'balanced',
     furniture: createFurnitureState(),
     inventory: {},
     carryCapacity: difficultyConfig.carryCapacity + (unlocked.includes('packer') ? 8 : 0),
