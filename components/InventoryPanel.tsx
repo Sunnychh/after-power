@@ -65,7 +65,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
                       </span>
                     </div>
                   </div>
-                  {item.usable && <button type="button" onClick={() => onUse(item.id)}>使用</button>}
+                  {item.usable && state.phase !== 'ended' && <button type="button" onClick={() => onUse(item.id)}>使用</button>}
                   {item.story && <small className="item-tag">线索</small>}
                 </article>
               );

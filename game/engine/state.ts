@@ -47,8 +47,11 @@ export function dayLabel(state: GameState): string {
 }
 
 export function createLog(state: GameState, title: string, body: string, tone: LogEntry['tone'] = 'story'): LogEntry {
+  const usedIds = new Set(state.logs.map((log) => log.id));
+  let sequence = state.logs.length + 1;
+  while (usedIds.has(`${state.runId}-log-${sequence}`)) sequence += 1;
   return {
-    id: `${state.runId}-log-${state.logs.length + 1}`,
+    id: `${state.runId}-log-${sequence}`,
     dayLabel: dayLabel(state),
     title,
     body,

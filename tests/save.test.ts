@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { clearGame, loadGame, loadMeta, saveGame, saveMeta } from '../game/engine/save.ts';
 import { createInitialState, GAME_SAVE_KEY, LEGACY_GAME_SAVE_KEY, PREVIOUS_GAME_SAVE_KEY } from '../game/engine/state.ts';
 import type { StorageLike } from '../game/types.ts';
+import { visitStore } from '../game/engine/actions.ts';
 
 class MemoryStorage implements StorageLike {
   values = new Map<string, string>();
@@ -28,6 +29,20 @@ test('存档可恢复贷款余额、还款与催收进度', () => {
   state.debt!.totalRepaid = 77;
   saveGame(storage, state);
   assert.deepEqual(loadGame(storage)?.debt, state.debt);
+});
+
+test('商店内刷新会恢复同一次采购行程，跨日的陈旧行程会被清理', () => {
+  const storage = new MemoryStorage();
+  const state = createInitialState('shopping-save');
+  state.currentEventId = undefined;
+  const shopping = visitStore(state, 'market').state;
+  saveGame(storage, shopping);
+  assert.deepEqual(loadGame(storage)?.shoppingTrip, shopping.shoppingTrip);
+
+  const stale = structuredClone(shopping);
+  stale.prepDay += 1;
+  saveGame(storage, stale);
+  assert.equal(loadGame(storage)?.shoppingTrip, undefined);
 });
 
 test('损坏或未知版本存档安全回退', () => {
@@ -75,6 +90,37 @@ test('恢复存档会清理重复日结日志、旧愿望点反馈与过时的�
   assert.equal(restored.dailySettlement?.earnedPoints, 2);
   assert.equal(restored.dailySettlement?.basePoints, 0);
   assert.equal(restored.dailySettlement?.deadlinePoints, 0);
+});
+
+test('恢复存档会修复终局互斥状态与碰撞日志 ID', () => {
+  const storage = new MemoryStorage();
+  const state = createInitialState('normalize-ending-save', [], 0, 'normal', false, 'bridge');
+  state.phase = 'ended';
+  state.outcome = {
+    id: 'death', variantId: 'death-collapse', title: '你的记录停在这一页', text: '身体抵达极限。', memoryEarned: 1, keyChoices: ['健康归零'],
+  };
+  state.flags.push('survived-goal-night', 'evacuation-choice-pending', 'ending:truth', 'ending:truth');
+  state.dailySettlement = {
+    id: 'stale', dayKey: 'survival:14', dayLabel: '封锁第 14 天', wishId: 'survival-care', wishAchieved: false,
+    wishPoints: 0, deadlineId: 'open', deadlineAchieved: false, deadlinePoints: 0, basePoints: 0, earnedPoints: 0,
+    endedAtMinutes: 21 * 60, rewardChoices: ['quiet-rest'], finalNight: true,
+  };
+  state.logs.push(
+    { ...state.logs[0], id: state.logs[0].id, title: '重复 ID' },
+    { ...state.logs[0], id: `${state.runId}-restored-log-1`, title: '占用修复 ID' },
+    { ...state.logs[0], id: state.logs[0].id, title: '再次重复 ID' },
+  );
+  saveGame(storage, state);
+
+  const restored = loadGame(storage)!;
+  assert.equal(new Set(restored.logs.map((log) => log.id)).size, restored.logs.length);
+  assert.equal(restored.flags.includes('survived-goal-night'), false);
+  assert.equal(restored.flags.includes('evacuation-choice-pending'), false);
+  assert.equal(restored.flags.some((flag) => flag.startsWith('ending:')), false);
+  assert.equal(restored.dailyPlan, undefined);
+  assert.equal(restored.dailySettlement, undefined);
+  assert.equal(restored.currentEventId, undefined);
+  assert.deepEqual(restored.feedback, []);
 });
 
 test('v1 存档迁移为标准难度时钟制并保留进度', () => {

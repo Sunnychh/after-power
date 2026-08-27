@@ -19,6 +19,7 @@ export function currentDayKey(state: GameState): string {
 }
 
 export function dailyActionBlockedReason(state: GameState): string | null {
+  if (state.phase === 'ended') return '本轮已经结束。';
   if (state.dailySettlement) return '先确认昨夜的愿望结算。';
   if (state.flags.includes('evacuation-choice-pending')) return '撤离通道已经开放，请先决定离城路线。';
   if (!state.dailyPlan) return '今日愿望尚未生成，请重新载入存档。';

@@ -75,7 +75,8 @@ function hasValidCore(state: Partial<GameState> | null): state is GameState {
     && state.furniture
     && state.inventory
     && Array.isArray(state.flags)
-    && Array.isArray(state.logs),
+    && Array.isArray(state.logs)
+    && (state.phase !== 'ended' || Boolean(state.outcome)),
   );
 }
 
@@ -87,10 +88,16 @@ function removeStaleBatches(state: GameState): GameState {
   if (!Number.isFinite(next.isolationNights)) next.isolationNights = 0;
   if (!next.storePurchases || typeof next.storePurchases !== 'object') next.storePurchases = {};
   if (next.debt && (!Number.isFinite(next.debt.balance) || next.debt.balance <= 0)) next.debt = undefined;
-  if (next.shoppingTrip && (!Number.isFinite(next.shoppingTrip.carriedWeight) || !Number.isFinite(next.shoppingTrip.capacity))) next.shoppingTrip = undefined;
+  if (next.shoppingTrip && (
+    !['market', 'pharmacy', 'hardware', 'fuel'].includes(next.shoppingTrip.store)
+    || next.shoppingTrip.prepDay !== next.prepDay
+    || !Number.isFinite(next.shoppingTrip.carriedWeight)
+    || !Number.isFinite(next.shoppingTrip.capacity)
+  )) next.shoppingTrip = undefined;
   next.inventory = expireItems(next.inventory, absoluteDay(next)).inventory;
   const seenDailySettlements = new Set<string>();
   const seenLogIds = new Set<string>();
+  let restoredLogSequence = 1;
   next.logs = next.logs
     .filter((log) => {
       if (log.title !== '每日愿望结算') return true;
@@ -99,14 +106,20 @@ function removeStaleBatches(state: GameState): GameState {
       return true;
     })
     .map((log, index) => {
-      if (!seenLogIds.has(log.id)) {
+      if (typeof log.id === 'string' && log.id && !seenLogIds.has(log.id)) {
         seenLogIds.add(log.id);
         return log;
       }
-      const id = `${next.runId}-restored-log-${index + 1}`;
+      let id = `${next.runId}-restored-log-${restoredLogSequence}`;
+      while (seenLogIds.has(id)) {
+        restoredLogSequence += 1;
+        id = `${next.runId}-restored-log-${restoredLogSequence}`;
+      }
+      restoredLogSequence += 1;
       seenLogIds.add(id);
-      return { ...log, id };
+      return { ...log, id: id || `${next.runId}-restored-log-${index + 1}` };
     });
+  next.flags = [...new Set(next.flags)];
   next.feedback = next.feedback.filter((item) => item.label !== '愿望点');
   if (next.dailySettlement && (next.dailySettlement.basePoints > 0 || next.dailySettlement.deadlinePoints > 0)) {
     const obsoletePoints = next.dailySettlement.basePoints + next.dailySettlement.deadlinePoints;
@@ -116,6 +129,24 @@ function removeStaleBatches(state: GameState): GameState {
     next.dailySettlement.deadlineId = 'open';
     next.dailySettlement.deadlineAchieved = next.dailySettlement.wishAchieved;
     next.dailySettlement.earnedPoints = next.dailySettlement.wishAchieved ? next.dailySettlement.wishPoints : 0;
+  }
+  if (next.outcome) next.phase = 'ended';
+  if (next.phase === 'ended') {
+    next.currentEventId = undefined;
+    next.dailyPlan = undefined;
+    next.dailySettlement = undefined;
+    next.shoppingTrip = undefined;
+    next.feedback = [];
+    next.flags = next.flags.filter((flag) => {
+      if (flag === 'evacuation-choice-pending') return false;
+      if (next.outcome?.id === 'death' && flag === 'survived-goal-night') return false;
+      if (flag.startsWith('ending:')) return flag === `ending:${next.outcome?.id}`;
+      return true;
+    });
+  } else {
+    next.flags = next.flags.filter((flag) => !flag.startsWith('ending:'));
+    if (next.dailySettlement) next.dailyPlan = undefined;
+    if (next.phase !== 'prep') next.shoppingTrip = undefined;
   }
   return ensureAssignedDailyWish(next);
 }

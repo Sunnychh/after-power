@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chooseEvacuation, determineOutcome, truthEndingReady } from '../game/engine/outcomes.ts';
 import { createInitialState } from '../game/engine/state.ts';
+import { endDay } from '../game/engine/actions.ts';
+import { activateDay } from './helpers.ts';
 
 function evacuationState() {
   const state = createInitialState('ending');
@@ -82,8 +84,57 @@ test('死亡会根据孤立、尸潮和天气形成不同终局', () => {
 
 test('玩家可以主动放弃撤离并进入留守者结局', () => {
   const state = evacuationState();
+  state.debt = { tier: 'bridge', borrowed: 280, balance: 120, dueSurvivalDay: 5, minimumPayment: 80, missedCollections: 0, totalRepaid: 240 };
   const result = chooseEvacuation(state, 'remain');
   assert.equal(result.ok, true);
   assert.equal(result.state.outcome?.variantId, 'survivor-caretaker');
   assert.ok(result.state.outcome?.keyChoices.includes('留守街区'));
+  assert.match(result.state.outcome?.text ?? '', /留守街区也不会让合同自动消失/);
+  assert.doesNotMatch(result.state.outcome?.text ?? '', /离开封锁区时/);
+});
+
+test('夜间致死后立即终止，不再追加催收、孤立或“活着离开”的冲突叙事', () => {
+  let state = evacuationState();
+  state.flags = state.flags.filter((flag) => flag !== 'evacuation-choice-pending' && flag !== 'survived-goal-night');
+  state = activateDay(state, 'survival-care');
+  state.stats.health = 4;
+  state.stats.satiety = 100;
+  state.stats.hydration = 100;
+  state.stats.morale = 0;
+  state.broadcasts = 0;
+  state.injuries = ['感染迹象'];
+  state.debt = { tier: 'bridge', borrowed: 280, balance: 360, dueSurvivalDay: 5, minimumPayment: 80, missedCollections: 1, totalRepaid: 0 };
+
+  const result = endDay(state);
+  assert.equal(result.ok, true);
+  assert.equal(result.state.phase, 'ended');
+  assert.equal(result.state.outcome?.variantId, 'death-infection');
+  assert.ok(result.state.logs.some((log) => log.title.includes('夜间结算')));
+  assert.equal(result.state.logs.some((log) => log.title.includes('催收')), false);
+  assert.equal(result.state.logs.some((log) => log.title.includes('无人回应')), false);
+  assert.doesNotMatch(result.state.outcome?.text ?? '', /活下来|离开封锁区/);
+  assert.equal(result.state.flags.includes('survived-goal-night'), false);
+  assert.equal(result.state.flags.includes('evacuation-choice-pending'), false);
+  assert.equal(result.state.dailySettlement, undefined);
+});
+
+test('催收导致避难所失守后不会继续结算孤立伤害', () => {
+  let state = evacuationState();
+  state.survivalDay = 6;
+  state.flags = state.flags.filter((flag) => flag !== 'evacuation-choice-pending' && flag !== 'survived-goal-night');
+  state = activateDay(state, 'survival-care');
+  state.shelter.integrity = 2;
+  state.stats.health = 100;
+  state.stats.satiety = 100;
+  state.stats.hydration = 100;
+  state.stats.morale = 0;
+  state.broadcasts = 0;
+  state.debt = { tier: 'bridge', borrowed: 280, balance: 388, dueSurvivalDay: 5, minimumPayment: 80, missedCollections: 1, totalRepaid: 0 };
+
+  const result = endDay(state);
+  assert.equal(result.state.phase, 'ended');
+  assert.equal(result.state.outcome?.id, 'death');
+  assert.ok(result.state.logs.some((log) => log.title === '逾期催收 · 第 2 次'));
+  assert.equal(result.state.logs.some((log) => log.title.includes('无人回应')), false);
+  assert.equal(result.state.isolationNights, 0);
 });

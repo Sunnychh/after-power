@@ -74,6 +74,7 @@ export function resolveCurrentEvent(state: GameState, optionIndex: number): Resu
 
   let next = structuredClone(state);
   let dangerText = '';
+  let dangerWasMajor = false;
   if (option.danger) {
     const danger = rollDanger(next, option.danger);
     next = danger.state;
@@ -82,6 +83,7 @@ export function resolveCurrentEvent(state: GameState, optionIndex: number): Resu
       dangerText = ` ${describeDanger(danger)} 结果：擦伤撤回。`;
     } else if (danger.severity === 'major') {
       next = applyEffect(next, { stats: { stamina: -12, health: -12 }, injury: '外伤' }, '危险判定');
+      dangerWasMajor = true;
       dangerText = ` ${describeDanger(danger)} 结果：遭遇严重失误。`;
     } else {
       dangerText = ` ${describeDanger(danger)}`;
@@ -90,7 +92,7 @@ export function resolveCurrentEvent(state: GameState, optionIndex: number): Resu
   next = applyEffect(next, option.effects, event.title);
   next.seenEvents = [...next.seenEvents, event.id];
   next.currentEventId = undefined;
-  next.logs = [...next.logs, createLog(next, event.title, `${option.result}${dangerText}`, dangerText.includes('严重') ? 'bad' : 'story')];
+  next.logs = [...next.logs, createLog(next, event.title, `${option.result}${dangerText}`, dangerWasMajor ? 'bad' : 'story')];
   return completeTimedAction(next, 30, `event:${event.id}`);
 }
 
@@ -337,8 +339,15 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
       addFlag(next, 'truth-attempt-failed');
       body = `中继器过载，发送在 63% 处中断。${describeDanger(danger)} 你仍能退回避难所，普通撤离没有被关闭。`;
     } else {
+      if (danger.severity === 'minor') {
+        const powerBefore = next.shelter.power;
+        next = applyEffect(next, { stats: { stamina: -8 }, shelter: { power: -2 } }, '中继器过热');
+        const powerSpent = powerBefore - next.shelter.power;
+        body = `校验完成。三个城外接收站先后回应。${describeDanger(danger)} 中继器一度过热，体力 -8${powerSpent > 0 ? `，电力 -${powerSpent}` : '；备用电力已经见底'}，但传输没有中断。这份数据已经不只存在于城里。`;
+      } else {
+        body = `校验完成。三个城外接收站先后回应。${describeDanger(danger)} 这份数据已经不只存在于城里。`;
+      }
       addFlag(next, 'truth-transmitted');
-      body = `校验完成。三个城外接收站先后回应。${describeDanger(danger)} 这份数据已经不只存在于城里。`;
     }
   }
 

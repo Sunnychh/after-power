@@ -70,7 +70,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   onNextRound: () => void;
 }) {
   const [mode, setMode] = useState<Mode>('main');
-  const [shop, setShop] = useState<StoreId | null>(null);
+  const [shop, setShop] = useState<StoreId | null>(() => state.shoppingTrip?.store ?? null);
   const [drawer, setDrawer] = useState(false);
   const event = state.currentEventId ? EVENT_MAP[state.currentEventId] : undefined;
   const difficultyConfig = DIFFICULTY_MAP[state.difficulty];
@@ -81,6 +81,11 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
     const ok = onResult(result);
     if (ok) setMode('main');
     return ok;
+  };
+
+  const closeShop = () => {
+    setShop(null);
+    if (state.shoppingTrip) onCommit({ ...state, shoppingTrip: undefined });
   };
 
   const choices = (() : ActionChoice[] => {
@@ -290,6 +295,8 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
     ? state.dailySettlement.wishAchieved
       ? `愿望点余额 ${state.dailyPoints} · 选择一项今日奖励`
       : `今日奖励 +0 · 未完成没有惩罚`
+    : state.phase === 'ended'
+      ? '本轮状态已经锁定并保存；返回标题页后可查看记忆或开始下一轮'
     : state.flags.includes('evacuation-choice-pending')
       ? '结局由你选择，不会因满足隐藏条件自动覆盖普通撤离'
       : event
@@ -374,7 +381,9 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           <section className="daily-objective">
             <span className="section-kicker">DAILY PROMISE</span>
             <h2>今日愿望 · {state.dailyPoints} 点</h2>
-            {state.dailySettlement ? (
+            {state.phase === 'ended' ? (
+              <p>本轮愿望与资源结算已经结束，终局状态不会再发生变化。</p>
+            ) : state.dailySettlement ? (
               <p>{state.dailySettlement.wishAchieved ? '今天的愿望已经达成，请在下方领取一项奖励。' : '今天的愿望没有完成；没有惩罚，确认后继续。'}</p>
             ) : activeWish ? (
               <>
@@ -473,7 +482,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       )}
 
       {shop && (
-        <Modal title={STORE_NAMES[shop]} onClose={() => setShop(null)} footer={<button className="primary-inline" type="button" onClick={() => setShop(null)}>结束采购</button>}>
+        <Modal title={STORE_NAMES[shop]} onClose={closeShop} footer={<button className="primary-inline" type="button" onClick={closeShop}>结束采购</button>}>
           <p className="store-description">{STORE_DESCRIPTIONS[shop]} {prepSupplyMessage(state.prepDay)}</p>
           <div className="store-balance"><span>现金 <b>¥{state.money}</b></span><span>随身包剩余 <b>{shoppingCarryRemaining(state).toFixed(1)} kg</b> · 选购不另计时</span></div>
           <div className="store-grid">

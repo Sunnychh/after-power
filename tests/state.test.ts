@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ITEMS } from '../game/data/items.ts';
 import { EVENTS } from '../game/data/events.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
-import { endDay, exploreLocation, exploreSubstationControl, performPrepAction, performSurvivalAction, substationControlAccess } from '../game/engine/actions.ts';
+import { endDay, exploreLocation, exploreSubstationControl, performPrepAction, performSurvivalAction, resolveCurrentEvent, substationControlAccess } from '../game/engine/actions.ts';
 import { claimDailyReward, continueAfterMissedWish } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { applyEffect, createInitialState, dangerFactorText, dangerRisk, describeDanger, rollDanger, selectEvent } from '../game/engine/state.ts';
@@ -48,6 +48,61 @@ test('危险概率由可追踪因素计算，日志明确说明比较规则', ()
   assert.match(explanation, /随机值 \d+/);
   assert.match(explanation, /风险线 56|严重线 28/);
   assert.match(explanation, /风险构成/);
+});
+
+test('事件日志的颜色取决于实际危险等级，不会被说明文字中的“严重线”误判', () => {
+  let minorChecked = false;
+  let majorChecked = false;
+  for (let index = 0; index < 500 && (!minorChecked || !majorChecked); index += 1) {
+    const state = survivalState(`event-tone-${index}`);
+    state.currentEventId = 'battery-trade';
+    const result = resolveCurrentEvent(state, 1);
+    assert.equal(result.ok, true);
+    const log = result.state.logs.findLast((entry) => entry.title === '隔门的交易');
+    if (log?.body.includes('触发轻微后果')) {
+      assert.equal(log.tone, 'story');
+      minorChecked = true;
+    }
+    if (log?.body.includes('触发严重后果')) {
+      assert.equal(log.tone, 'bad');
+      majorChecked = true;
+    }
+  }
+  assert.equal(minorChecked, true, '没有覆盖到轻微危险样本');
+  assert.equal(majorChecked, true, '没有覆盖到严重危险样本');
+});
+
+test('真相发送的轻微危险会实际扣除电力和体力，但不会错误中断传输', () => {
+  let checked = false;
+  for (let index = 0; index < 500 && !checked; index += 1) {
+    const state = survivalState(`truth-minor-${index}`);
+    state.survivalDay = 12;
+    state.broadcasts = 3;
+    state.shelter.power = 10;
+    state.flags.push('truth-window-open', 'decoded-broadcast', 'evidence-signal', 'evidence-ledger', 'evidence-van');
+    state.relationships['lin-zhou'] = 20;
+    state.relationships['qiu-lan'] = 20;
+    const stamina = state.stats.stamina;
+    const result = performSurvivalAction(state, 'truth');
+    const log = result.state.logs.findLast((entry) => entry.title === '向封锁线外发送证据');
+    if (log?.body.includes('触发轻微后果')) {
+      assert.equal(result.ok, true);
+      assert.equal(result.state.shelter.power, 8);
+      assert.equal(result.state.stats.stamina, stamina - 8);
+      assert.ok(result.state.flags.includes('truth-transmitted'));
+      assert.equal(result.state.flags.includes('truth-attempt-failed'), false);
+      assert.match(log.body, /体力 -8，电力 -2/);
+      const powerless = structuredClone(state);
+      powerless.shelter.power = 0;
+      const powerlessResult = performSurvivalAction(powerless, 'truth');
+      const powerlessLog = powerlessResult.state.logs.findLast((entry) => entry.title === '向封锁线外发送证据');
+      assert.equal(powerlessResult.state.shelter.power, 0);
+      assert.match(powerlessLog?.body ?? '', /备用电力已经见底/);
+      assert.doesNotMatch(powerlessLog?.body ?? '', /电力 -2/);
+      checked = true;
+    }
+  }
+  assert.equal(checked, true, '没有覆盖到真相发送的轻微危险样本');
 });
 
 test('灾前剩余时间不足时不会推进时钟或扣钱', () => {
@@ -192,6 +247,14 @@ test('无规划安全机器人也会在有限天数内抵达结局', () => {
         state = activateDay(state, 'survival-care');
         state.currentEventId = undefined;
         state = endDay(state).state;
+      }
+      assert.equal(new Set(state.logs.map((log) => log.id)).size, state.logs.length, `seed bot-${index} 出现重复日志 ID`);
+      assert.ok(state.logs.every((log) => log.dayLabel && log.title && log.body), `seed bot-${index} 出现空日志`);
+      if (state.phase === 'ended') {
+        assert.equal(state.currentEventId, undefined);
+        assert.equal(state.dailyPlan, undefined);
+        assert.equal(state.dailySettlement, undefined);
+        assert.equal(state.flags.includes('evacuation-choice-pending'), false);
       }
       guard += 1;
     }

@@ -23,13 +23,13 @@ function findRation(state: GameState, tag: 'food' | 'water'): ItemDefinition | u
     })[0];
 }
 
-function consumeRation(state: GameState, item: ItemDefinition, reason: string): GameState {
+function consumeRation(state: GameState, item: ItemDefinition, reason: string): { state: GameState; consumed: boolean } {
   const removed = removeItem(state.inventory, item.id, 1);
-  if (!removed) return state;
+  if (!removed) return { state, consumed: false };
   let next = { ...structuredClone(state), inventory: removed };
   next = applyEffect(next, { stats: item.effects }, reason);
   next.feedback.push({ id: `${next.runId}-ration-${next.logs.length}-${item.id}`, label: item.name, delta: -1, reason });
-  return next;
+  return { state: next, consumed: true };
 }
 
 export function extendColdStorage(inventory: Inventory, currentDay: number): { inventory: Inventory; preserved: number } {
@@ -101,17 +101,19 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   const waterDrain = Math.round(24 * config.nightCostMultiplier);
   const staminaGain = next.difficulty === 'easy' ? 32 : next.difficulty === 'hard' ? 22 : 26;
   const moraleDrain = next.difficulty === 'easy' ? 0 : next.difficulty === 'hard' ? 4 : 2;
-  const food = next.autoRations ? findRation(next, 'food') : undefined;
-  const water = next.autoRations ? findRation(next, 'water') : undefined;
   next = applyEffect(next, { stats: { satiety: -foodDrain, hydration: -waterDrain, stamina: staminaGain, morale: -moraleDrain } }, '夜间基础消耗');
   const consumed: string[] = [];
-  if (next.autoRations && next.stats.satiety < 60 && food) {
-    next = consumeRation(next, food, '夜间配给');
-    consumed.push(food.name);
+  const food = next.autoRations && next.stats.satiety < 60 ? findRation(next, 'food') : undefined;
+  if (food) {
+    const ration = consumeRation(next, food, '夜间配给');
+    next = ration.state;
+    if (ration.consumed) consumed.push(food.name);
   }
+  const water = next.autoRations && next.stats.hydration < 60 ? findRation(next, 'water') : undefined;
   if (next.autoRations && next.stats.hydration < 60 && water) {
-    next = consumeRation(next, water, '夜间配给');
-    consumed.push(water.name);
+    const ration = consumeRation(next, water, '夜间配给');
+    next = ration.state;
+    if (ration.consumed) consumed.push(water.name);
   } else if (next.autoRations && next.stats.hydration < 60 && next.shelter.water >= 4) {
     next = applyEffect(next, { shelter: { water: -4 }, stats: { hydration: 24 } }, '使用水箱储水');
     consumed.push('水箱储水');
@@ -145,7 +147,20 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   if (next.stats.satiety < 20) next = applyEffect(next, { stats: { health: next.stats.satiety === 0 ? -15 : -8 } }, '严重饥饿');
   if (next.stats.hydration < 20) next = applyEffect(next, { stats: { health: next.stats.hydration === 0 ? -22 : -12 } }, '严重脱水');
 
+  next.logs = [...next.logs, createLog(
+    next,
+    `${next.weather} · 夜间结算`,
+    `基础消耗：饱腹 -${foodDrain}，水分 -${waterDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}${hadNightLight ? '留了一盏灯。' : '屋里整夜没有电。'}${fridgeText}`,
+    next.stats.health < 35 ? 'bad' : 'system',
+  )];
+
+  const nightOutcome = determineOutcome(next);
+  if (nightOutcome) return { state: finishRun(next, nightOutcome), ok: true };
+
   next = assessDebtNight(next);
+  const debtOutcome = determineOutcome(next);
+  if (debtOutcome) return { state: finishRun(next, debtOutcome), ok: true };
+
   if (next.broadcasts === 0 && next.stats.morale <= 20) {
     next.isolationNights += 1;
     next = applyEffect(next, { stats: { health: next.isolationNights >= 2 ? -4 : 0, stamina: -3 } }, '持续孤立');
@@ -157,21 +172,14 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
     next.isolationNights = 0;
   }
 
-  next.logs = [...next.logs, createLog(
-    next,
-    `${next.weather} · 夜间结算`,
-    `基础消耗：饱腹 -${foodDrain}，水分 -${waterDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}${hadNightLight ? '留了一盏灯。' : '屋里整夜没有电。'}${fridgeText}`,
-    next.stats.health < 35 ? 'bad' : 'system',
-  )];
+  const isolationOutcome = determineOutcome(next);
+  if (isolationOutcome) return { state: finishRun(next, isolationOutcome), ok: true };
 
   const finalNight = next.survivalDay >= config.survivalGoalDays;
   if (finalNight) {
     addFlag(next, 'survived-goal-night');
     addFlag(next, 'evacuation-choice-pending');
   }
-  const outcome = determineOutcome(next);
-  if (outcome) return { state: finishRun(next, outcome), ok: true };
-
   if (finalNight) return { state: createDailySettlement(beforeNight, next, true), ok: true };
 
   next.survivalDay += 1;

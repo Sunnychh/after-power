@@ -211,12 +211,25 @@ export function chooseEvacuation(state: GameState, route: 'survivor' | 'truth' |
 }
 
 export function finishRun(state: GameState, outcome: Outcome): GameState {
-  const resolvedOutcome = state.debt && state.debt.balance > 0 ? {
+  const shouldAppendDebt = outcome.id !== 'death'
+    && outcome.variantId !== 'survivor-debt-flight'
+    && state.debt
+    && state.debt.balance > 0;
+  const debtEpilogue = outcome.variantId === 'survivor-caretaker'
+    ? ` 那笔 ¥${state.debt?.balance} 的债务仍在催收名单上；留守街区也不会让合同自动消失。`
+    : ` 离开封锁区时，那笔 ¥${state.debt?.balance} 的债务仍在催收名单上；活下来并没有让合同自动消失。`;
+  const resolvedOutcome = shouldAppendDebt ? {
     ...outcome,
-    text: `${outcome.text} 离开封锁区时，那笔 ¥${state.debt.balance} 的债务仍在催收名单上；活下来并没有让合同自动消失。`,
-    keyChoices: [...outcome.keyChoices, `带着 ¥${state.debt.balance} 未结债务离开`],
+    text: `${outcome.text}${debtEpilogue}`,
+    keyChoices: [...outcome.keyChoices, `仍有 ¥${state.debt!.balance} 债务未结清`],
   } : outcome;
-  return { ...state, phase: 'ended', outcome: resolvedOutcome, currentEventId: undefined, dailyPlan: undefined, dailySettlement: undefined };
+  const flags = state.flags.filter((flag) => {
+    if (flag === 'evacuation-choice-pending') return false;
+    if (outcome.id === 'death' && flag === 'survived-goal-night') return false;
+    if (flag.startsWith('ending:')) return flag === `ending:${outcome.id}`;
+    return true;
+  });
+  return { ...state, flags, phase: 'ended', outcome: resolvedOutcome, currentEventId: undefined, dailyPlan: undefined, dailySettlement: undefined };
 }
 
 export function awardOutcome(meta: MetaState, state: GameState): MetaState {
