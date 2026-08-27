@@ -206,6 +206,8 @@ kbd { border: 1px solid #40513b; color: var(--muted); padding: 3px 7px; font-siz
 .status-dock { min-width: 0; border-left: 1px solid #3b4b3c; background: #0c120d; padding: 12px; }
 .status-dock > header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 8px; }
 .status-dock > header span { color: var(--muted); font-size: 8px; letter-spacing: .12em; }
+.status-dock > header div { display: flex; align-items: baseline; gap: 10px; }
+.status-dock > header strong { color: var(--amber); font-size: 11px; font-weight: 650; white-space: nowrap; }
 .status-dock > header b { color: var(--green); font-size: 12px; }
 .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
 .status-dock .resource-cell { grid-column: 1 / -1; }

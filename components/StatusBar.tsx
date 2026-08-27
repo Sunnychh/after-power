@@ -41,7 +41,7 @@ export function StatusBar({ state, savedAt, onOpenInventory, onOpenSettings, onR
       </div>
       <div className="day-block">
         <strong>{dayLabel(state)} · {formatClock(state.clockMinutes)}</strong>
-        <span>{state.phase === 'prep' ? `距离封锁 ${8 - state.prepDay} 天` : state.phase === 'survival' ? `${state.weather} · 日终 ${formatClock(dayEndMinutes(state))}` : difficulty.tagline}</span>
+        <span>{state.phase === 'prep' ? `距离封锁 ${8 - state.prepDay} 天` : state.phase === 'survival' ? `${state.weather} · 日终 ${formatClock(dayEndMinutes(state))}` : difficulty.tagline} · 现金 ¥{state.money}</span>
       </div>
       <div className="header-tools">
         <span className="save-indicator"><i /> 已保存 {savedAt}</span>
@@ -55,7 +55,10 @@ export function StatusBar({ state, savedAt, onOpenInventory, onOpenSettings, onR
 export function StatusDock({ state }: { state: GameState }) {
   return (
     <aside className="status-dock" aria-label="核心状态">
-      <header><span>状态监测</span><b>{formatClock(state.clockMinutes)}</b></header>
+      <header>
+        <span>状态监测</span>
+        <div><strong aria-label={`剩余现金 ${state.money} 元`}>现金 ¥{state.money}</strong><b>{formatClock(state.clockMinutes)}</b></div>
+      </header>
       <div className="status-grid">
         {STATS.map(({ key, label }) => <StatCell key={key} label={label} value={state.stats[key]} />)}
         <StatCell label="完整度" value={state.shelter.integrity} />
