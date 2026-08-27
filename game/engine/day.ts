@@ -1,6 +1,7 @@
 import { DIFFICULTY_MAP } from '../data/difficulties.ts';
 import { ITEM_MAP, ITEMS } from '../data/items.ts';
 import { POWER_POLICY_MAP } from '../data/power.ts';
+import { survivalPressure } from '../data/pressure.ts';
 import type { GameState, Inventory, ItemDefinition } from '../types.ts';
 import { createDailySettlement, dailyActionBlockedReason, recordDailyAction } from './daily.ts';
 import { determineOutcome, finishRun } from './outcomes.ts';
@@ -51,6 +52,30 @@ export function extendColdStorage(inventory: Inventory, currentDay: number): { i
 
 export function completeTimedAction(state: GameState, durationMinutes: number, actionId = 'timed-action'): EngineResult {
   let next = structuredClone(state);
+  if (next.phase === 'survival') {
+    const pressure = survivalPressure(next.difficulty, next.survivalDay);
+    const elapsedBefore = Math.max(0, next.clockMinutes - SURVIVAL_DAY_START);
+    const elapsedAfter = Math.max(0, next.clockMinutes + durationMinutes - SURVIVAL_DAY_START);
+    const twoHourBlocks = Math.floor(elapsedAfter / 120) - Math.floor(elapsedBefore / 120);
+    if (twoHourBlocks > 0) {
+      const satietyBefore = next.stats.satiety;
+      const hydrationBefore = next.stats.hydration;
+      next.stats.satiety = Math.max(0, next.stats.satiety - pressure.activityFoodPerTwoHours * twoHourBlocks);
+      next.stats.hydration = Math.max(0, next.stats.hydration - pressure.activityWaterPerTwoHours * twoHourBlocks);
+      const foodDelta = next.stats.satiety - satietyBefore;
+      const waterDelta = next.stats.hydration - hydrationBefore;
+      if (foodDelta) next.feedback.push({ id: `${next.runId}-activity-food-${next.logs.length}-${next.clockMinutes}`, label: '饱腹', delta: foodDelta, reason: `${twoHourBlocks * 2}小时行动消耗` });
+      if (waterDelta) next.feedback.push({ id: `${next.runId}-activity-water-${next.logs.length}-${next.clockMinutes}`, label: '水分', delta: waterDelta, reason: `${twoHourBlocks * 2}小时行动消耗` });
+      if (foodDelta || waterDelta) {
+        next.logs.push(createLog(
+          next,
+          '白天配给消耗',
+          `游戏时钟跨过 ${twoHourBlocks} 个两小时结算点：饱腹 ${foodDelta}，水分 ${waterDelta}。休息能恢复体力，但经过的时间仍需要食物和饮水。`,
+          'system',
+        ));
+      }
+    }
+  }
   next.clockMinutes += durationMinutes;
   next.feedback.push({ id: `${next.runId}-time-${next.logs.length}-${next.clockMinutes}`, label: '时间', delta: durationMinutes, reason: '行动耗时' });
   next = recordDailyAction(next, actionId);
@@ -100,10 +125,11 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   }
 
   const config = DIFFICULTY_MAP[next.difficulty];
-  const foodDrain = Math.round(18 * config.nightCostMultiplier);
-  const waterDrain = Math.round(24 * config.nightCostMultiplier);
-  const staminaGain = next.difficulty === 'easy' ? 32 : next.difficulty === 'hard' ? 22 : 26;
-  const moraleDrain = next.difficulty === 'easy' ? 0 : next.difficulty === 'hard' ? 4 : 2;
+  const pressure = survivalPressure(next.difficulty, next.survivalDay);
+  const foodDrain = pressure.foodDrain;
+  const waterDrain = pressure.waterDrain;
+  const staminaGain = pressure.staminaRecovery;
+  const moraleDrain = pressure.moraleDrain;
   next = applyEffect(next, { stats: { satiety: -foodDrain, hydration: -waterDrain, stamina: staminaGain, morale: -moraleDrain } }, '夜间基础消耗');
   const consumed: string[] = [];
   const food = next.autoRations && next.stats.satiety < 60 ? findRation(next, 'food') : undefined;
@@ -181,15 +207,15 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
     else next = applyEffect(next, { stats: { health: -5, morale: -3 } }, '寒潮失温');
   }
   const alliedWithLin = next.flags.includes('npc-allied:lin-zhou');
-  if (next.injuries.includes('外伤')) next = applyEffect(next, { stats: { health: alliedWithLin ? -1 : -3 } }, alliedWithLin ? '林舟 · 创伤分级' : '未处理外伤');
-  if (next.injuries.includes('感染迹象')) next = applyEffect(next, { stats: { health: alliedWithLin ? -3 : -5 } }, alliedWithLin ? '林舟 · 创伤分级' : '感染加重');
+  if (next.injuries.includes('外伤')) next = applyEffect(next, { stats: { health: alliedWithLin ? -2 : -3 } }, alliedWithLin ? '林舟 · 创伤分级' : '未处理外伤');
+  if (next.injuries.includes('感染迹象')) next = applyEffect(next, { stats: { health: alliedWithLin ? -4 : -5 } }, alliedWithLin ? '林舟 · 创伤分级' : '感染加重');
   if (next.stats.satiety < 20) next = applyEffect(next, { stats: { health: next.stats.satiety === 0 ? -15 : -8 } }, '严重饥饿');
   if (next.stats.hydration < 20) next = applyEffect(next, { stats: { health: next.stats.hydration === 0 ? -22 : -12 } }, '严重脱水');
 
   next.logs = [...next.logs, createLog(
     next,
     `${next.weather} · 夜间结算`,
-    `基础消耗：饱腹 -${foodDrain}，水分 -${waterDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}供电策略：${policy.name}，电力 ${powerBefore} → ${next.shelter.power}。${powerText}${fridgeText}`,
+    `${pressure.name}：饱腹 -${foodDrain}，水分 -${waterDrain}，睡眠体力 +${staminaGain}，精神 -${moraleDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}供电策略：${policy.name}，电力 ${powerBefore} → ${next.shelter.power}。${powerText}${fridgeText}`,
     next.stats.health < 35 ? 'bad' : 'system',
   )];
 

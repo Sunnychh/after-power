@@ -83,3 +83,19 @@ test('第七天停止正常零售，冒险结果包含受伤与免费带回物�
   assert.ok(injuries > 0, '应有种子触发受伤结果');
   assert.ok(successes > 0, '应有种子触发免费带回物资');
 });
+
+test('同一家店每天只能进场一次，最后一天整日也只能冒险采购一次', () => {
+  let ordinary = prepState('one-store-visit', 'hard');
+  ordinary = visitStore(ordinary, 'market').state;
+  ordinary.shoppingTrip = undefined;
+  const repeated = visitStore(ordinary, 'market');
+  assert.equal(repeated.ok, false);
+  assert.match(repeated.message ?? '', /今天已经去过/);
+
+  let finalDay = prepState('one-risky-trip', 'hard');
+  finalDay.prepDay = 7;
+  finalDay = visitStore(finalDay, 'market').state;
+  const second = visitStore(finalDay, 'hardware');
+  assert.equal(second.ok, false);
+  assert.match(second.message ?? '', /只能冒险采购一次/);
+});

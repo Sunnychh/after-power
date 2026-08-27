@@ -5,9 +5,10 @@ import { createLog } from './state.ts';
 export function powerUpgradeSpec(state: GameState): { level: number; money: number; minutes: number; power: number; name: string } | null {
   const level = state.shelter.generator;
   if (level >= 3) return null;
-  if (level === 0) return { level: 1, money: 110, minutes: 180, power: 8, name: '安装备用切换箱' };
-  if (level === 1) return { level: 2, money: 90, minutes: 120, power: 12, name: '增加蓄电模组' };
-  return { level: 3, money: 120, minutes: 120, power: 10, name: '铺设独立冷藏回路' };
+  const powerByDifficulty = state.difficulty === 'easy' ? [10, 12, 10] : state.difficulty === 'hard' ? [5, 6, 5] : [7, 8, 7];
+  if (level === 0) return { level: 1, money: 110, minutes: 180, power: powerByDifficulty[0], name: '安装备用切换箱' };
+  if (level === 1) return { level: 2, money: 90, minutes: 120, power: powerByDifficulty[1], name: '增加蓄电模组' };
+  return { level: 3, money: 120, minutes: 120, power: powerByDifficulty[2], name: '铺设独立冷藏回路' };
 }
 
 export function setPowerPolicy(state: GameState, policy: PowerPolicy): { state: GameState; ok: boolean; message?: string } {
@@ -22,6 +23,7 @@ export function setPowerPolicy(state: GameState, policy: PowerPolicy): { state: 
 }
 
 export function projectedPowerNights(state: GameState): number | null {
-  const cost = POWER_POLICY_MAP[state.powerPolicy].expectedPower;
+  const alarmCost = state.phase === 'survival' && state.difficulty === 'hard' && state.survivalDay >= 8 ? 1 : 0;
+  const cost = POWER_POLICY_MAP[state.powerPolicy].expectedPower + alarmCost;
   return cost === 0 ? null : Math.floor(state.shelter.power / cost);
 }

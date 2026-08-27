@@ -2,6 +2,7 @@ import { EVENT_MAP } from '../data/events.ts';
 import { DIFFICULTY_MAP } from '../data/difficulties.ts';
 import { ITEM_MAP, ITEMS } from '../data/items.ts';
 import { LOCATION_MAP } from '../data/world.ts';
+import { makeshiftRepairAmount, workIncome } from '../data/pressure.ts';
 import type { EventEffect, GameState, ItemDefinition, StoreId } from '../types.ts';
 import { addItem, canAddWeight, inventoryCount, inventoryWeight, removeItem } from './inventory.ts';
 import { determineOutcome, finishRun, truthEndingReady } from './outcomes.ts';
@@ -100,19 +101,24 @@ export function resolveCurrentEvent(state: GameState, optionIndex: number): Resu
 export function visitStore(state: GameState, store: StoreId): Result {
   if (state.phase !== 'prep') return { state, ok: false, message: '封锁后商店已经停止营业。' };
   if (state.prepDay === 7) return performLastDayShopping(state, store);
+  const visitFlag = `visited-store:${state.prepDay}:${store}`;
+  if (hasFlag(state, visitFlag)) return { state, ok: false, message: '今天已经去过这家店，店员不再允许重复进场。' };
   const started = beginTimedAction(state, 90, 30);
   if (!started.state) return { state, ok: false, message: started.reason ?? '当前无法前往商店。' };
   const next = started.state;
-  addFlag(next, `visited-store:${store}`);
+  addFlag(next, visitFlag);
   next.shoppingTrip = { store, prepDay: next.prepDay, carriedWeight: 0, capacity: shoppingCarryCapacity(next) };
   next.logs = [...next.logs, createLog(next, '出门采购', `${state.prepDay === 1 ? '街面还算平静，但抢购的苗头已经出现。' : '街上的人比昨天更多，货架上的选择也比昨天更少。'}你只带了一只能装 ${next.shoppingTrip.capacity}kg 的随身包，装满就必须回家。`, 'system')];
   return completeTimedAction(next, 90, 'prep:visit-store');
 }
 
 function performLastDayShopping(state: GameState, store: StoreId): Result {
+  const attemptFlag = `risky-shopping:${state.prepDay}`;
+  if (hasFlag(state, attemptFlag)) return { state, ok: false, message: '最后一天只能冒险采购一次；街面已经彻底失控。' };
   const started = beginTimedAction(state, 150);
   if (!started.state) return { state, ok: false, message: started.reason ?? '已经来不及冒险采购。' };
   let next = started.state;
+  addFlag(next, attemptFlag);
   const injuryChance = next.difficulty === 'easy' ? 10 : next.difficulty === 'hard' ? 26 : 18;
   const outcomeRoll = randomInt(next.rngState, 1, 100);
   next.rngState = outcomeRoll.state;
@@ -183,6 +189,10 @@ export function purchaseItem(state: GameState, itemId: string, quantity = 1): Re
 
 export type PrepActionId = 'work' | 'reinforce' | 'water' | 'power' | 'drill' | 'investigate' | 'contact' | 'rest';
 
+export function prepWorkIncome(state: Pick<GameState, 'difficulty'>): number {
+  return workIncome(state.difficulty);
+}
+
 export function performPrepAction(state: GameState, action: PrepActionId): Result {
   if (state.phase !== 'prep') return { state, ok: false, message: '灾前行动已经结束。' };
   const powerUpgrade = action === 'power' ? powerUpgradeSpec(state) : null;
@@ -201,7 +211,7 @@ export function performPrepAction(state: GameState, action: PrepActionId): Resul
   if (spec.money && state.money < spec.money) return { state, ok: false, message: `还差 ¥${spec.money - state.money}` };
   let next = started.state;
   const effects: Record<PrepActionId, EventEffect> = {
-    work: { money: 170, stats: { stamina: -18, morale: -3 } },
+    work: { money: prepWorkIncome(next), stats: { stamina: -18, morale: -3 } },
     reinforce: { money: -70, shelter: { integrity: 15, reinforcement: 1 }, stats: { stamina: -8 } },
     water: { money: -90, shelter: { water: 18, storage: 5 }, stats: { stamina: -6 } },
     power: { money: -(powerUpgrade?.money ?? 0), shelter: { power: powerUpgrade?.power ?? 0, generator: 1 }, stats: { stamina: -7 } },
@@ -231,6 +241,21 @@ export function performPrepAction(state: GameState, action: PrepActionId): Resul
 }
 
 export type SurvivalActionId = 'rest' | 'repair' | 'barricade' | 'plate' | 'radio' | 'generator' | 'purify' | 'drink-storage' | 'truth';
+
+export function makeshiftRepairFlag(state: Pick<GameState, 'survivalDay'>): string {
+  return `makeshift-repair:${state.survivalDay}`;
+}
+
+export function repairPreview(state: GameState): { amount: number; stamina: number; material: boolean; disabledReason?: string } {
+  const material = inventoryCount(state.inventory, 'duct-tape') > 0 && inventoryCount(state.inventory, 'toolkit') > 0;
+  if (material) return { amount: 16 + (state.flags.includes('npc-allied:pan-yue') ? 3 : 0), stamina: 7, material: true };
+  return {
+    amount: makeshiftRepairAmount(state.difficulty),
+    stamina: 15,
+    material: false,
+    ...(state.flags.includes(makeshiftRepairFlag(state)) ? { disabledReason: '今天的临时支撑已经用过；继续修缮需要工具箱与强力胶带' } : {}),
+  };
+}
 
 export function debtPaymentAmount(state: GameState, mode: 'minimum' | 'all'): number {
   if (!state.debt) return 0;
@@ -276,24 +301,31 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     truth: 180,
   };
   const duration = durations[action];
+  const repair = action === 'repair' ? repairPreview(state) : undefined;
+  if (repair?.disabledReason) return { state, ok: false, message: repair.disabledReason };
+  const staminaCost = action === 'repair' ? repair!.stamina : action === 'barricade' ? 9 : action === 'plate' ? 11 : action === 'truth' ? 18 : 0;
+  if (staminaCost > 0 && state.stats.stamina <= staminaCost) return { state, ok: false, message: `体力不足（需要高于 ${staminaCost}）` };
+  if (action === 'radio' && state.shelter.power < 2 && inventoryCount(state.inventory, 'batteries') < 1 && state.stats.stamina <= 12) {
+    return { state, ok: false, message: '无电收听需要手摇发电，体力必须高于 12' };
+  }
   const started = beginTimedAction(state, duration);
   if (!started.state) return { state, ok: false, message: started.reason };
   let next = started.state;
   let title = '';
   let body = '';
-  const panRepairBonus = next.flags.includes('npc-allied:pan-yue') ? 6 : 0;
+  const panRepairBonus = next.flags.includes('npc-allied:pan-yue') ? 3 : 0;
 
   if (action === 'rest') {
     title = '休息两小时'; body = '你把背包放回门边，喝了一小口水，闭眼休息到呼吸重新平稳。';
     next = applyEffect(next, { stats: { stamina: 32, morale: 4 } }, title);
   } else if (action === 'repair') {
     title = '修缮避难所';
-    if (inventoryCount(next.inventory, 'duct-tape') > 0 && inventoryCount(next.inventory, 'toolkit') > 0) {
+    if (repair?.material) {
       next = applyEffect(next, { inventory: { 'duct-tape': -1 }, shelter: { integrity: 16 + panRepairBonus }, stats: { stamina: -7 } }, title);
       body = '你用工具重新固定门框，并用胶带封住最宽的缝。';
     } else {
-      next = applyEffect(next, { shelter: { integrity: 6 + panRepairBonus }, stats: { stamina: -15 } }, title);
-      body = '没有合适材料，你把废木条做成几块临时支撑。';
+      next = applyEffect(next, { shelter: { integrity: makeshiftRepairAmount(next.difficulty) }, stats: { stamina: -15 }, addFlags: [makeshiftRepairFlag(next)] }, title);
+      body = `没有合适材料，你把屋内仅剩的废木条做成一次性临时支撑。今天只能这样抢回 ${makeshiftRepairAmount(next.difficulty)} 点完整度。`;
     }
   } else if (action === 'barricade') {
     if (inventoryCount(next.inventory, 'wood-board') < 1) return { state, ok: false, message: '缺少木板 ×1' };
@@ -320,7 +352,7 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     if (next.shelter.generator < 1) return { state, ok: false, message: '灾前没有完成备用供电改造。' };
     if (next.shelter.fuel < 3) return { state, ok: false, message: '燃料不足 3。' };
     title = '启动备用电源'; body = '发电机在阳台上低声运转，你只开了足够充电的一小段时间。';
-    next = applyEffect(next, { shelter: { fuel: -3, power: 9 }, stats: { morale: 3 } }, title);
+    next = applyEffect(next, { shelter: { fuel: -3, power: 5 }, stats: { morale: 2 } }, title);
   } else if (action === 'purify') {
     if (inventoryCount(next.inventory, 'purifier-tablet') < 1 || inventoryCount(next.inventory, 'filter-cloth') < 1 || next.shelter.water < 6) {
       return { state, ok: false, message: '需要净水片、滤布与 6 单位储水。' };
@@ -354,7 +386,7 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     }
   }
 
-  if (panRepairBonus && ['repair', 'barricade', 'plate'].includes(action)) body += ' 潘岳按承重图复核了受力点，额外恢复完整度 +6。';
+  if (panRepairBonus && (repair?.material || ['barricade', 'plate'].includes(action))) body += ' 潘岳按承重图复核了受力点，额外恢复完整度 +3。';
   next.logs = [...next.logs, createLog(next, title, body, action === 'truth' && !hasFlag(next, 'truth-transmitted') ? 'bad' : 'good')];
   return completeTimedAction(next, duration, `survival:${action}`);
 }
@@ -363,6 +395,7 @@ export function exploreLocation(state: GameState, locationId: string): Result {
   const location = LOCATION_MAP[locationId];
   if (!location || state.phase !== 'survival') return { state, ok: false, message: '无法前往该地点。' };
   if (locationId === 'riverside-market') return { state, ok: false, message: '河西生活超市已改为分区深入探索，请从地点列表进入。' };
+  if (state.stats.stamina <= 18) return { state, ok: false, message: '体力不足以完成四小时往返探索（需要高于 18）。' };
   const started = beginTimedAction(state, 240);
   if (!started.state) return { state, ok: false, message: started.reason ?? '今天没有足够时间探索。' };
   let next = started.state;

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ITEM_MAP } from '../game/data/items.ts';
-import { performPrepAction } from '../game/engine/actions.ts';
+import { performPrepAction, performSurvivalAction, useItem } from '../game/engine/actions.ts';
 import { endDay } from '../game/engine/day.ts';
 import { addItem } from '../game/engine/inventory.ts';
-import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
+import { powerUpgradeSpec, projectedPowerNights, setPowerPolicy } from '../game/engine/power.ts';
 import { createInitialState } from '../game/engine/state.ts';
 import { SURVIVAL_DAY_START } from '../game/engine/time.ts';
 import { activateDay } from './helpers.ts';
@@ -34,9 +34,9 @@ function survivalState(seed: string) {
 test('供电改造分三级，费用、时间和新增电力均实际结算', () => {
   let state = prepState('power-levels');
   for (const expected of [
-    { level: 1, money: 110, minutes: 180, power: 8 },
-    { level: 2, money: 90, minutes: 120, power: 12 },
-    { level: 3, money: 120, minutes: 120, power: 10 },
+    { level: 1, money: 110, minutes: 180, power: 7 },
+    { level: 2, money: 90, minutes: 120, power: 8 },
+    { level: 3, money: 120, minutes: 120, power: 7 },
   ]) {
     const spec = powerUpgradeSpec(state)!;
     assert.deepEqual({ level: spec.level, money: spec.money, minutes: spec.minutes, power: spec.power }, expected);
@@ -100,4 +100,25 @@ test('低电量不会透支，供电失败会明确写入日志', () => {
   assert.equal(result.state.shelter.power, 1);
   assert.ok(result.state.shelter.power >= 0);
   assert.ok(result.state.logs.some((log) => log.body.includes('电力不足 2 点')));
+});
+
+test('电池与燃料换电不再覆盖整局，困难后期续航包含警戒线负载', () => {
+  let state = survivalState('energy-budget');
+  state.difficulty = 'hard';
+  state.survivalDay = 9;
+  state.shelter.power = 0;
+  state.shelter.fuel = 0;
+  state.shelter.generator = 1;
+  state.inventory = addItem(state.inventory, ITEM_MAP.batteries, 1, 8);
+  state.inventory = addItem(state.inventory, ITEM_MAP['fuel-can'], 1, 8);
+  state = useItem(state, 'batteries').state;
+  state = useItem(state, 'fuel-can').state;
+  assert.equal(state.shelter.power, 3);
+  assert.equal(state.shelter.fuel, 6);
+  state = performSurvivalAction(state, 'generator').state;
+  state = performSurvivalAction(state, 'generator').state;
+  assert.equal(state.shelter.power, 13);
+  assert.equal(state.shelter.fuel, 0);
+  assert.equal(performSurvivalAction(state, 'generator').ok, false);
+  assert.equal(projectedPowerNights(state), 4, '均衡供电 2 + 困难警戒 1，应按每夜 3 电计算');
 });

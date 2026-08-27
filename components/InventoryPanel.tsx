@@ -21,6 +21,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
   const summary = inventorySummary(state);
   const currentDay = absoluteDay(state);
   const powerPolicy = POWER_POLICY_MAP[state.powerPolicy];
+  const alarmCost = state.phase === 'survival' && state.difficulty === 'hard' && state.survivalDay >= 8 ? 1 : 0;
   const powerNights = projectedPowerNights(state);
   const entries = Object.keys(state.inventory)
     .map((id) => ITEM_MAP[id])
@@ -88,7 +89,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             <div><dt>备用电力</dt><dd>{state.shelter.power} 单位</dd></div>
             <div><dt>燃料储备</dt><dd>{state.shelter.fuel} 单位</dd></div>
             <div><dt>供电改造</dt><dd>等级 {state.shelter.generator}</dd></div>
-            <div><dt>夜间负载</dt><dd>{powerPolicy.name} · 约 {powerPolicy.expectedPower} 电/夜</dd></div>
+            <div><dt>夜间负载</dt><dd>{powerPolicy.name} · 约 {powerPolicy.expectedPower + alarmCost} 电/夜{alarmCost ? '（含警戒）' : ''}</dd></div>
             <div><dt>预计续航</dt><dd>{powerNights === null ? '已关闭供电' : `约 ${powerNights} 夜`}</dd></div>
             <div><dt>料理技能</dt><dd>{state.cookingSkill} / 5 级 · 尝试 {state.cookingAttempts} 次</dd></div>
           </dl>

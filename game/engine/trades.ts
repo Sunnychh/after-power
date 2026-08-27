@@ -16,6 +16,11 @@ export function tradeFlag(state: GameState, offerId: string): string {
   return `trade:${state.survivalDay}:${offerId}`;
 }
 
+export function tradesUsedToday(state: GameState): number {
+  const prefix = `trade:${state.survivalDay}:`;
+  return state.flags.filter((flag) => flag.startsWith(prefix)).length;
+}
+
 export function dailyTradeOffers(state: GameState): TradeOfferDefinition[] {
   if (state.phase !== 'survival') return [];
   const pool = TRADE_OFFERS.filter((offer) => isNpcUnlocked(state, offer.npcId));
@@ -42,6 +47,7 @@ export function tradeOfferDisabledReason(state: GameState, offerId: string): str
   const offer = TRADE_OFFER_MAP[offerId];
   if (!offer || !dailyTradeOffers(state).some((candidate) => candidate.id === offerId)) return '这项报价今天没有出现';
   if (state.flags.includes(tradeFlag(state, offerId))) return '今天已经完成过这笔交易';
+  if (state.difficulty !== 'easy' && tradesUsedToday(state) >= 1) return '标准与艰难难度每天只能完成一笔交易';
   const timeReason = timeDisabledReason(state, TRADE_MINUTES);
   if (timeReason) return timeReason;
   for (const [itemId, quantity] of Object.entries(offer.give)) {

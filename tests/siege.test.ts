@@ -59,7 +59,24 @@ test('大型波次即使被挡住也会磨损加固，迫使后期持续补强',
   const resolved = resolveHardSiegeWave(state);
   assert.equal(resolved.shelter.integrity, 80);
   assert.equal(resolved.shelter.reinforcement, 12);
+  assert.ok(resolved.stats.stamina < state.stats.stamina);
+  assert.ok(resolved.stats.morale < state.stats.morale);
   assert.match(resolved.logs.at(-1)?.body ?? '', /加固 14 → 12/);
+});
+
+test('后期警戒线会消耗电力并只缓解守夜疲劳，不能把围攻变成恢复来源', () => {
+  const powered = survivalState('hard');
+  powered.survivalDay = 13;
+  powered.shelter.power = 2;
+  powered.shelter.reinforcement = 20;
+  const unpowered = structuredClone(powered);
+  unpowered.shelter.power = 0;
+  const withAlarm = resolveHardSiegeWave(powered);
+  const inDark = resolveHardSiegeWave(unpowered);
+  assert.equal(withAlarm.shelter.power, 1);
+  assert.ok(withAlarm.stats.stamina > inDark.stats.stamina);
+  assert.ok(withAlarm.stats.morale > inDark.stats.morale);
+  assert.ok(withAlarm.stats.stamina < powered.stats.stamina);
 });
 
 test('没有持续维护时后期连续波次会迅速压垮同一套静态加固', () => {

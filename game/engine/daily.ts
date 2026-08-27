@@ -2,10 +2,12 @@ import {
   DAILY_REWARD_MAP,
   DAILY_WISH_MAP,
 } from '../data/daily.ts';
+import { wishPointsForDifficulty } from '../data/pressure.ts';
 import type {
   DailyRewardId,
   DailySettlement,
   DailyWishId,
+  EventEffect,
   GameState,
 } from '../types.ts';
 import { absoluteDay, applyEffect, createLog, dayLabel } from './state.ts';
@@ -66,6 +68,36 @@ export function dailyWishProgress(state: GameState): string {
   return '进行中 · 今天结束前完成即可';
 }
 
+export function dailyWishRewardPoints(state: Pick<GameState, 'difficulty'>): number {
+  return wishPointsForDifficulty(state.difficulty);
+}
+
+export function dailyRewardDescription(state: Pick<GameState, 'difficulty'>, rewardId: DailyRewardId): string {
+  const easy = state.difficulty === 'easy';
+  if (rewardId === 'quiet-rest') return easy ? '体力 +12，精神 +6。' : state.difficulty === 'hard' ? '体力 +6，精神 +2。' : '体力 +8，精神 +4。';
+  if (rewardId === 'water-cache') return easy ? '瓶装水 ×1，储水 +2。' : '瓶装水 ×1。';
+  if (rewardId === 'food-cache') return easy ? '豆类罐头 ×1、压缩饼干 ×1。' : state.difficulty === 'hard' ? '压缩饼干 ×1。' : '豆类罐头 ×1。';
+  if (rewardId === 'repair-kit') return easy ? '完整度 +8，强力胶带 ×1。' : '强力胶带 ×1。';
+  if (rewardId === 'charge-pack') return easy ? '备用电力 +4，电池组 ×1。' : '备用电力 +3。';
+  return easy ? '健康 +12，并处理一项持续伤病。' : state.difficulty === 'hard' ? '健康 +7，并处理一项持续伤病。' : '健康 +9，并处理一项持续伤病。';
+}
+
+export function dailyRewardCost(state: Pick<GameState, 'difficulty'>, rewardId: DailyRewardId): number {
+  const base = DAILY_REWARD_MAP[rewardId].cost;
+  if (state.difficulty === 'easy' || rewardId === 'quiet-rest') return base;
+  return base + 1;
+}
+
+function dailyRewardEffect(state: Pick<GameState, 'difficulty'>, rewardId: DailyRewardId): EventEffect {
+  const easy = state.difficulty === 'easy';
+  if (rewardId === 'quiet-rest') return { stats: easy ? { stamina: 12, morale: 6 } : state.difficulty === 'hard' ? { stamina: 6, morale: 2 } : { stamina: 8, morale: 4 } };
+  if (rewardId === 'water-cache') return easy ? { inventory: { 'water-bottle': 1 }, shelter: { water: 2 } } : { inventory: { 'water-bottle': 1 } };
+  if (rewardId === 'food-cache') return easy ? { inventory: { crackers: 1, 'canned-beans': 1 } } : state.difficulty === 'hard' ? { inventory: { crackers: 1 } } : { inventory: { 'canned-beans': 1 } };
+  if (rewardId === 'repair-kit') return easy ? { inventory: { 'duct-tape': 1 }, shelter: { integrity: 8 } } : { inventory: { 'duct-tape': 1 } };
+  if (rewardId === 'charge-pack') return easy ? { inventory: { batteries: 1 }, shelter: { power: 4 } } : { shelter: { power: 3 } };
+  return { stats: { health: easy ? 12 : state.difficulty === 'hard' ? 7 : 9 } };
+}
+
 function rewardChoicesForDay(state: GameState): DailyRewardId[] {
   const rotating: DailyRewardId[] = ['water-cache', 'food-cache', 'repair-kit', 'charge-pack', 'first-aid'];
   const index = (absoluteDay(state) + state.seed) % rotating.length;
@@ -78,7 +110,7 @@ export function createDailySettlement(beforeNight: GameState, afterNight: GameSt
   const wish = DAILY_WISH_MAP[plan.wishId];
   const wishAchieved = plan.completedAtMinutes !== undefined;
   const basePoints = 0;
-  const wishPoints = wishAchieved ? wish.rewardPoints : 0;
+  const wishPoints = wishAchieved ? dailyWishRewardPoints(beforeNight) : 0;
   const deadlinePoints = 0;
   const earnedPoints = wishPoints;
   const settlement: DailySettlement = {
@@ -109,7 +141,7 @@ export function createDailySettlement(beforeNight: GameState, afterNight: GameSt
     next,
     '每日愿望结算',
     wishAchieved
-      ? `愿望“${wish.name}”已经达成，本日获得 ${wish.rewardPoints} 愿望点。`
+      ? `愿望“${wish.name}”已经达成，本日获得 ${wishPoints} 愿望点。`
       : `愿望“${wish.name}”今天未能完成：没有获得奖励，也没有任何损失。`,
     wishAchieved ? 'good' : 'system',
   );
@@ -123,24 +155,29 @@ export function claimDailyReward(state: GameState, rewardId: DailyRewardId): Dai
   const reward = DAILY_REWARD_MAP[rewardId];
   if (!settlement) return { state, ok: false, message: '当前没有待领取的每日奖励。' };
   if (!settlement.rewardChoices.includes(rewardId) || !reward) return { state, ok: false, message: '这项奖励今天没有出现。' };
-  if (state.dailyPoints < reward.cost) return { state, ok: false, message: `愿望点不足，还差 ${reward.cost - state.dailyPoints}。` };
+  const cost = dailyRewardCost(state, rewardId);
+  if (state.dailyPoints < cost) return { state, ok: false, message: `愿望点不足，还差 ${cost - state.dailyPoints}。` };
 
   let next = structuredClone(state);
-  const effects = {
-    'quiet-rest': { stats: { stamina: 12, morale: 6 } },
-    'water-cache': { inventory: { 'water-bottle': 1 }, shelter: { water: 2 } },
-    'food-cache': { inventory: { crackers: 1, 'canned-beans': 1 } },
-    'repair-kit': { inventory: { 'duct-tape': 1 }, shelter: { integrity: 10 } },
-    'charge-pack': { inventory: { batteries: 1 }, shelter: { power: 4 } },
-    'first-aid': { stats: { health: 12 } },
-  } as const;
-  next = applyEffect(next, effects[rewardId], `日结奖励 · ${reward.name}`);
+  next = applyEffect(next, dailyRewardEffect(next, rewardId), `日结奖励 · ${reward.name}`);
   if (rewardId === 'first-aid' && next.injuries.length) next.injuries = next.injuries.slice(1);
-  next.dailyPoints -= reward.cost;
+  next.dailyPoints -= cost;
   next.dailySettlement = undefined;
-  const log = createLog(next, `领取日结奖励 · ${reward.name}`, `${reward.description} 愿望点 -${reward.cost}，剩余 ${next.dailyPoints}。`, 'good');
+  const log = createLog(next, `领取日结奖励 · ${reward.name}`, `${dailyRewardDescription(next, rewardId)}愿望点 -${cost}，剩余 ${next.dailyPoints}。`, 'good');
   log.dayLabel = settlement.dayLabel;
   next.logs = [...next.logs, log];
+  return { state: ensureAssignedDailyWish(next), ok: true };
+}
+
+export function bankDailyPoints(state: GameState): DailyResult {
+  const settlement = state.dailySettlement;
+  if (!settlement || !settlement.wishAchieved) return { state, ok: false, message: '当前没有可保留的愿望点结算。' };
+  const next = structuredClone(state);
+  next.dailySettlement = undefined;
+  next.feedback = [];
+  const log = createLog(next, '保留愿望点', `没有领取即时物资，当前 ${next.dailyPoints} 点全部留到后续日结。`, 'system');
+  log.dayLabel = settlement.dayLabel;
+  next.logs.push(log);
   return { state: ensureAssignedDailyWish(next), ok: true };
 }
 

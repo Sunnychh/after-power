@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEEP_LOCATIONS, deepTargetFlag } from '../game/data/deep-exploration.ts';
 import { ITEM_MAP } from '../game/data/items.ts';
-import { beginDeepExplore, deepOptionDisabledReason, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
+import { adjustedDeepLoot, beginDeepExplore, deepOptionDisabledReason, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { loadGame, saveGame } from '../game/engine/save.ts';
 import { absoluteDay, createInitialState } from '../game/engine/state.ts';
@@ -176,4 +176,35 @@ test('深入地点配置的连接、物品、效果和方法引用全部有效',
       }
     }
   }
+});
+
+test('困难细化地图按种子削减普通战利品但完整保留剧情物品', () => {
+  const normal = createInitialState('deep-loot-budget', [], 0, 'normal');
+  const hard = createInitialState('deep-loot-budget', [], 0, 'hard');
+  let normalRegular = 0;
+  let hardRegular = 0;
+  let normalStory = 0;
+  let hardStory = 0;
+  for (const location of Object.values(DEEP_LOCATIONS)) {
+    for (const scene of location.scenes) {
+      for (const target of scene.targets) {
+        for (const option of target.options) {
+          const key = `${location.id}:${target.id}:${option.id}`;
+          const normalLoot = adjustedDeepLoot(normal, option.loot, key);
+          const hardLoot = adjustedDeepLoot(hard, option.loot, key);
+          for (const [itemId, quantity] of Object.entries(normalLoot)) {
+            if (ITEM_MAP[itemId].story) normalStory += quantity;
+            else normalRegular += quantity;
+          }
+          for (const [itemId, quantity] of Object.entries(hardLoot)) {
+            if (ITEM_MAP[itemId].story) hardStory += quantity;
+            else hardRegular += quantity;
+          }
+        }
+      }
+    }
+  }
+  assert.equal(hardStory, normalStory);
+  assert.ok(hardRegular <= normalRegular * 0.7, `困难掉落 ${hardRegular}/${normalRegular} 未压到 70% 以下`);
+  assert.ok(hardRegular >= normalRegular * 0.5, '困难地图仍应保留可规划的求生路线');
 });

@@ -4,6 +4,7 @@ import type { ExplorationSkillId, GameState } from '../types.ts';
 import { dailyActionBlockedReason } from './daily.ts';
 import { completeTimedAction, type EngineResult } from './day.ts';
 import { addItem, canAddWeight, inventoryCount, removeItem } from './inventory.ts';
+import { normalizeSeed, randomInt } from './rng.ts';
 import { absoluteDay, addFlag, applyEffect, createLog, describeDanger, rollDanger } from './state.ts';
 import { formatDuration, timeDisabledReason } from './time.ts';
 
@@ -63,6 +64,7 @@ export function beginDeepExplore(state: GameState, locationId: string): EngineRe
   if (state.expedition) return { state, ok: false, message: '你已经在一次探索途中。' };
   const dailyReason = dailyActionBlockedReason(state);
   if (dailyReason) return { state, ok: false, message: dailyReason };
+  if (state.stats.stamina <= 12) return { state, ok: false, message: '体力不足以承担往返路程（需要高于 12）。' };
   const reason = timeDisabledReason(state, location.travelMinutes + location.returnMinutes);
   if (reason) return { state, ok: false, message: reason };
   let next = structuredClone(state);
@@ -97,10 +99,47 @@ export function moveDeepExplore(state: GameState, sceneId: string): EngineResult
   return completeTimedAction(next, 10, 'survival:deep-move');
 }
 
-function collectLoot(state: GameState, loot: Record<string, number> | undefined): { found: string[]; left: string[] } {
+export function adjustedDeepLoot(
+  state: Pick<GameState, 'difficulty' | 'seed'>,
+  loot: Record<string, number> | undefined,
+  targetKey: string,
+): Record<string, number> {
+  const source = loot ?? {};
+  if (state.difficulty !== 'hard') return { ...source };
+
+  const result: Record<string, number> = {};
+  const regularUnits: string[] = [];
+  for (const [itemId, quantity] of Object.entries(source).sort(([a], [b]) => a.localeCompare(b))) {
+    if (ITEM_MAP[itemId]?.story) result[itemId] = quantity;
+    else for (let index = 0; index < quantity; index += 1) regularUnits.push(itemId);
+  }
+  if (!regularUnits.length) return result;
+
+  let keepCount = Math.max(1, Math.round(regularUnits.length * 0.65));
+  if (regularUnits.length === 1) {
+    keepCount = normalizeSeed(`${state.seed}:${targetKey}:hard-loot-single`) % 100 < 65 ? 1 : 0;
+  }
+  let seed = normalizeSeed(`${state.seed}:${targetKey}:hard-loot-order`);
+  const shuffled = [...regularUnits];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const roll = randomInt(seed, 0, index);
+    seed = roll.state;
+    [shuffled[index], shuffled[roll.value]] = [shuffled[roll.value], shuffled[index]];
+  }
+  for (const itemId of shuffled.slice(0, keepCount)) result[itemId] = (result[itemId] ?? 0) + 1;
+  return result;
+}
+
+function collectLoot(state: GameState, loot: Record<string, number> | undefined, targetKey: string): { found: string[]; left: string[]; scarce: string[] } {
   const found: string[] = [];
   const left: string[] = [];
+  const scarce: string[] = [];
+  const adjusted = adjustedDeepLoot(state, loot, targetKey);
   for (const [itemId, quantity] of Object.entries(loot ?? {})) {
+    const remaining = quantity - (adjusted[itemId] ?? 0);
+    if (remaining > 0 && !ITEM_MAP[itemId]?.story) scarce.push(`${ITEM_MAP[itemId]?.name ?? itemId} ×${remaining}`);
+  }
+  for (const [itemId, quantity] of Object.entries(adjusted)) {
     const item = ITEM_MAP[itemId];
     if (!item) continue;
     if (item.story && inventoryCount(state.inventory, itemId) > 0) continue;
@@ -117,7 +156,7 @@ function collectLoot(state: GameState, loot: Record<string, number> | undefined)
     }
     if (added < quantity) left.push(`${item.name} ×${quantity - added}`);
   }
-  return { found, left };
+  return { found, left, scarce };
 }
 
 export function resolveDeepTarget(state: GameState, targetId: string, optionId: string): EngineResult {
@@ -150,13 +189,18 @@ export function resolveDeepTarget(state: GameState, targetId: string, optionId: 
       tone = 'bad';
     }
   }
-  const loot = collectLoot(next, option.loot);
+  const loot = collectLoot(next, option.loot, `${location.id}:${target.id}:${option.id}`);
   const skillText = Object.entries(option.skillXp ?? {}).map(([skill, amount]) => gainSkill(next, skill as ExplorationSkillId, amount ?? 0)).join('');
   for (const flag of option.addFlags ?? []) addFlag(next, flag);
   addFlag(next, deepTargetFlag(location.id, target.id));
-  const lootText = loot.found.length ? `带上：${loot.found.join('、')}。` : '背包已满，没能带走物资。';
+  const lootText = loot.found.length
+    ? `带上：${loot.found.join('、')}。`
+    : loot.scarce.length
+      ? '能用的货格已经被先来者取空。'
+      : '背包已满，没能带走物资。';
   const leftText = loot.left.length ? ` 负重不足，留下：${loot.left.join('、')}。` : '';
-  next.logs.push(createLog(next, `${scene.name} · ${target.name}`, `${option.result}${dangerText} ${lootText}${leftText} ${skillText}`, tone));
+  const scarceText = loot.scarce.length ? ` 困难模式下，这里已有部分货格被先来者取空：${loot.scarce.join('、')}。` : '';
+  next.logs.push(createLog(next, `${scene.name} · ${target.name}`, `${option.result}${dangerText} ${lootText}${leftText}${scarceText} ${skillText}`, tone));
   return completeTimedAction(next, option.minutes, 'survival:deep-action');
 }
 
@@ -179,5 +223,6 @@ export function leaveDeepExplore(state: GameState): EngineResult {
 export function deepStartDisabledReason(state: GameState, locationId: string): string | null {
   const location = DEEP_LOCATIONS[locationId];
   if (!location) return '这个地点暂不支持深入探索';
+  if (state.stats.stamina <= 12) return '体力不足以承担往返路程（需要高于 12）';
   return timeDisabledReason(state, location.travelMinutes + location.returnMinutes);
 }

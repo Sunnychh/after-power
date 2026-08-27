@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ITEM_MAP } from '../game/data/items.ts';
 import { endDay, performPrepAction } from '../game/engine/actions.ts';
-import { claimDailyReward, continueAfterMissedWish, ensureAssignedDailyWish } from '../game/engine/daily.ts';
+import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyRewardDescription, ensureAssignedDailyWish } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { createInitialState } from '../game/engine/state.ts';
 import { PREP_DAY_START } from '../game/engine/time.ts';
@@ -37,8 +37,8 @@ test('愿望首次达成后日终只发愿望奖励，不再固定发放每日 +
   assert.equal(settled.ok, true);
   assert.equal(settled.state.dailySettlement?.wishAchieved, true);
   assert.equal(settled.state.dailySettlement?.basePoints, 0);
-  assert.equal(settled.state.dailySettlement?.earnedPoints, 2);
-  assert.equal(settled.state.dailyPoints, 2);
+  assert.equal(settled.state.dailySettlement?.earnedPoints, 1);
+  assert.equal(settled.state.dailyPoints, 1);
   assert.equal(settled.state.feedback.some((item) => item.label === '愿望点'), false);
 });
 
@@ -66,7 +66,7 @@ test('刚好抵达日终的最后一个行动仍计入愿望，待处理日结�
   assert.equal(settled.state.prepDay, 2);
   assert.equal(settled.state.dailySettlement?.wishAchieved, true);
   assert.equal(settled.state.dailySettlement?.completedAtMinutes, 22 * 60);
-  assert.equal(settled.state.dailyPoints, 2);
+  assert.equal(settled.state.dailyPoints, 1);
 
   const snapshot = structuredClone(settled.state);
   const duplicate = endDay(settled.state);
@@ -86,9 +86,34 @@ test('达成后可以选奖励；点数不足时状态完全不变', () => {
 
   const rewarded = claimDailyReward(settled, 'quiet-rest');
   assert.equal(rewarded.ok, true);
-  assert.equal(rewarded.state.dailyPoints, 1);
+  assert.equal(rewarded.state.dailyPoints, 0);
   assert.equal(rewarded.state.dailySettlement, undefined);
   assert.equal(rewarded.state.dailyPlan?.dayKey, 'prep:2');
+});
+
+test('标准与艰难每天只得一点且可保留，物资奖励不再单日覆盖整晚消耗', () => {
+  const state = plannedPrep('prep-income');
+  const settled = endDay(performPrepAction(state, 'work').state).state;
+  assert.equal(settled.dailyPoints, 1);
+  const banked = bankDailyPoints(settled);
+  assert.equal(banked.ok, true);
+  assert.equal(banked.state.dailyPoints, 1);
+  assert.match(dailyRewardDescription(banked.state, 'food-cache'), /豆类罐头 ×1/);
+  assert.doesNotMatch(dailyRewardDescription(banked.state, 'food-cache'), /饼干/);
+});
+
+test('简易难度保留双倍愿望点与丰厚奖励，仍适合轻松游玩', () => {
+  let state = createInitialState('easy-daily-reward', [], 0, 'easy');
+  state.currentEventId = undefined;
+  state.dailyPlan = undefined;
+  state = ensureAssignedDailyWish(state, 'prep-income');
+  const settled = endDay(performPrepAction(state, 'work').state).state;
+  assert.equal(settled.dailyPoints, 2);
+  settled.dailySettlement!.rewardChoices = ['quiet-rest', 'food-cache', 'repair-kit'];
+  const rewarded = claimDailyReward(settled, 'food-cache');
+  assert.equal(rewarded.ok, true);
+  assert.equal(inventoryCount(rewarded.state.inventory, 'canned-beans'), inventoryCount(state.inventory, 'canned-beans') + 1);
+  assert.equal(inventoryCount(rewarded.state.inventory, 'crackers'), inventoryCount(state.inventory, 'crackers') + 1);
 });
 
 test('日结日志只出现一次，并排在下一天日志之前', () => {

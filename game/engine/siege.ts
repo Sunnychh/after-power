@@ -18,7 +18,7 @@ export function siegeMitigation(state: GameState): number {
     + (state.flags.includes('horde-prepared') ? 3 : 0)
     + (state.flags.includes('horde-braced') ? 1 : 0)
     + (state.flags.includes('horde-survived') ? 2 : 0)
-    + (state.flags.includes('npc-allied:chen-meng') ? 3 : 0);
+    + (state.flags.includes('npc-allied:chen-meng') ? 2 : 0);
 }
 
 export function siegeDamage(state: GameState, wave: SiegeWaveDefinition): number {
@@ -33,9 +33,13 @@ export function resolveHardSiegeWave(state: GameState): GameState {
   const integrityBefore = state.shelter.integrity;
   const reinforcementBefore = state.shelter.reinforcement;
   const reinforcementWear = Math.min(reinforcementBefore, wave.reinforcementWear);
+  const baseFatigue = wave.day >= 13 ? 9 : wave.day >= 11 ? 7 : wave.day >= 8 ? 5 : 2;
+  const poweredAlarm = wave.day >= 8 && state.shelter.power >= 1;
+  const guardFatigue = Math.max(1, baseFatigue - (poweredAlarm ? 2 : 0));
+  const moraleChange = damage === 0 ? -1 : damage >= 12 ? -6 : damage >= 7 ? -4 : -2;
   const next = applyEffect(state, {
-    shelter: { integrity: -damage, reinforcement: -reinforcementWear },
-    stats: { morale: damage === 0 ? 3 : damage >= 12 ? -5 : damage >= 7 ? -3 : -1 },
+    shelter: { integrity: -damage, reinforcement: -reinforcementWear, power: poweredAlarm ? -1 : 0 },
+    stats: { morale: moraleChange + (wave.day >= 8 && !poweredAlarm ? -2 : 0), stamina: -guardFatigue },
     addFlags: [`siege-wave:${wave.day}`],
   }, `困难波次 · ${wave.name}`);
   const absorbed = Math.min(wave.pressure, mitigation);
@@ -45,6 +49,11 @@ export function resolveHardSiegeWave(state: GameState): GameState {
   const result = damage === 0
     ? '所有撞击都被加固层吸收，门框没有继续变形。'
     : `避难所完整度 ${integrityBefore} → ${next.shelter.integrity}。${damage >= 12 ? '承重点发出断裂声，必须尽快修缮。' : '加固层仍在，但留下了需要处理的新裂缝。'}`;
-  next.logs.push(createLog(next, `第 ${wave.day} 夜 · ${wave.name}`, `冲击 ${wave.pressure} - 加固吸收 ${absorbed} = 实际损伤 ${damage}。${result}${wearText}`, damage >= 12 ? 'bad' : damage === 0 ? 'good' : 'system'));
+  const alarmText = wave.day < 8
+    ? `守夜体力 -${guardFatigue}。`
+    : poweredAlarm
+      ? `楼道门磁消耗电力 1，提前预警把守夜体力消耗降到 -${guardFatigue}。`
+      : `警戒线无电，守夜体力 -${guardFatigue}、精神额外 -2。`;
+  next.logs.push(createLog(next, `第 ${wave.day} 夜 · ${wave.name}`, `冲击 ${wave.pressure} - 加固吸收 ${absorbed} = 实际损伤 ${damage}。${result}${wearText} ${alarmText}`, damage >= 12 ? 'bad' : 'system'));
   return next;
 }

@@ -9,12 +9,15 @@ import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { LOAN_MAP } from '../game/data/loans.ts';
 import { DEEP_LOCATIONS, deepScene, deepTargetFlag } from '../game/data/deep-exploration.ts';
 import { POWER_POLICIES } from '../game/data/power.ts';
+import { activeContactLimit, survivalPressure } from '../game/data/pressure.ts';
 import {
   availableStoreItems,
   endDay,
   eventOptionDisabledReason,
   performPrepAction,
   performSurvivalAction,
+  prepWorkIncome,
+  repairPreview,
   debtPaymentAmount,
   purchaseDisabledReason,
   purchaseItem,
@@ -29,7 +32,7 @@ import { cookingPreview, FURNITURE_ACTION_MINUTES, furnitureActionDisabledReason
 import { inventoryCount } from '../game/engine/inventory.ts';
 import { isNpcUnlocked } from '../game/engine/npcs.ts';
 import { debtRiskBonus } from '../game/engine/loan.ts';
-import { claimDailyReward, continueAfterMissedWish, dailyWishProgress } from '../game/engine/daily.ts';
+import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyRewardCost, dailyRewardDescription, dailyWishProgress, dailyWishRewardPoints } from '../game/engine/daily.ts';
 import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
 import { dangerRisk } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
@@ -38,7 +41,7 @@ import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, EX
 import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
 import { nextSiegeWave, siegeDamage, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
 import { dailyTradeOffers, executeTrade, tradeItemsText, tradeOfferDisabledReason, TRADE_MINUTES } from '../game/engine/trades.ts';
-import { activeContactDisabledReason, contactCostText, contactOptions, npcAllianceFlag, performActiveContact } from '../game/engine/contacts.ts';
+import { activeContactDisabledReason, contactCostText, contactOptions, contactsRemainingToday, npcAllianceFlag, performActiveContact } from '../game/engine/contacts.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
@@ -50,7 +53,7 @@ type EngineResult = { state: GameState; ok: boolean; message?: string };
 
 const TUTORIAL = [
   { title: '状态就在右下', body: '健康、水分、饱腹、精神、体力和避难所状态固定在右下。低于 40 会影响危险判定。' },
-  { title: '钟点决定一天', body: '每个行动会推进游戏内时钟，到达日终自动进入夜间结算。休息两小时可以恢复体力。' },
+  { title: '钟点决定一天', body: '每个行动会推进游戏内时钟，到达日终自动进入夜间结算。封锁后每经过两小时还会产生少量食水消耗；休息能恢复体力，但不再是免费循环。' },
   { title: '每件物资都标保存期', body: '易腐物会按入库批次显示“剩余 N 天”或“今天到期”，其他物资会标为长期保存；冰箱会逐批延长仍有效的保质期。' },
   { title: '每天一个明确愿望', body: '系统每天直接给出一件当天能完成的事。达成后夜间领取奖励；没有完成也不会扣除任何状态或点数。' },
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
@@ -87,6 +90,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const expeditionLocation = state.expedition ? DEEP_LOCATIONS[state.expedition.locationId] : undefined;
   const expeditionScene = state.expedition ? deepScene(state.expedition.locationId, state.expedition.sceneId) : undefined;
   const selectedTarget = expeditionScene?.targets.find((target) => target.id === selectedTargetId);
+  const pressure = survivalPressure(state.difficulty, Math.max(1, state.survivalDay));
 
   const run = (result: EngineResult) => {
     const ok = onResult(result);
@@ -119,16 +123,22 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           onSelect: () => run(continueAfterMissedWish(state)),
         }];
       }
-      return state.dailySettlement.rewardChoices.map((rewardId) => {
+      return [...state.dailySettlement.rewardChoices.map((rewardId) => {
         const reward = DAILY_REWARD_MAP[rewardId];
+        const cost = dailyRewardCost(state, reward.id);
         return {
           id: reward.id,
           label: reward.name,
-          hint: `${reward.cost} 愿望点 · ${reward.description}`,
-          disabledReason: state.dailyPoints < reward.cost ? `愿望点不足（需要 ${reward.cost}）` : undefined,
+          hint: `${cost} 愿望点 · ${dailyRewardDescription(state, reward.id)}`,
+          disabledReason: state.dailyPoints < cost ? `愿望点不足（需要 ${cost}）` : undefined,
           onSelect: () => run(claimDailyReward(state, reward.id)),
         };
-      });
+      }), {
+        id: 'bank-daily-points',
+        label: '暂不领取，保留愿望点',
+        hint: '不获得即时恢复或物资；所有点数留到后续日结',
+        onSelect: () => run(bankDailyPoints(state)),
+      }];
     }
     if (state.flags.includes('evacuation-choice-pending')) {
       return [
@@ -205,7 +215,10 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           label: state.prepDay === 7 ? `高风险 · ${label}` : label,
           hint: state.prepDay === 7 ? `2小时30分 · ${hint} · 可能受伤，也可能免费带回残余物资` : `1小时30分 · ${hint}`,
           danger: state.prepDay === 7 ? `${state.difficulty === 'easy' ? 10 : state.difficulty === 'hard' ? 26 : 18}% 受伤` : undefined,
-          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120),
+          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120)
+            ?? (state.prepDay === 7
+              ? state.flags.includes(`risky-shopping:${state.prepDay}`) ? '最后一天已经冒险采购过一次' : null
+              : state.flags.includes(`visited-store:${state.prepDay}:${id}`) ? '今天已经去过这家店' : null),
           onSelect: () => {
             const result = visitStore(state, id);
             if (onResult(result)) {
@@ -251,13 +264,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         onSelect: () => run(performPrepAction(state, id)),
       });
       return [
-        prep('work', '临时加班', '金钱 +¥170 · 体力 -18', 240, state.flags.includes(`worked:${state.prepDay}`) ? '今天已经工作过' : null),
+        prep('work', '临时加班', `金钱 +¥${prepWorkIncome(state)} · 体力 -18`, 240, state.flags.includes(`worked:${state.prepDay}`) ? '今天已经工作过' : null),
         {
           id: 'shops',
           label: state.prepDay === 7 ? '封锁前最后采购' : '前往商店采购',
           hint: state.prepDay === 7 ? '2小时30分 · 街面已失控：可能受伤，也可能免费带回残余物资' : `1小时30分 · ${prepSupplyMessage(state.prepDay)}`,
           danger: state.prepDay === 7 ? `${state.difficulty === 'easy' ? 10 : state.difficulty === 'hard' ? 26 : 18}% 受伤` : undefined,
-          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120),
+          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120) ?? (state.prepDay === 7 && state.flags.includes(`risky-shopping:${state.prepDay}`) ? '最后一天已经冒险采购过一次' : null),
           onSelect: () => setMode('shops'),
         },
         prep('reinforce', '加固门窗', '¥70 · 完整度 +15', 180, state.money < 70 ? '金钱不足（需要 ¥70）' : null),
@@ -361,7 +374,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
     }
     if (mode === 'power') {
       return [
-        { id: 'generator', label: '启动备用电源', hint: '30分钟 · 燃料 3 → 电力 +9', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '灾前未完成供电改造' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
+        { id: 'generator', label: '启动备用电源', hint: '30分钟 · 燃料 3 → 电力 +5', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '灾前未完成供电改造' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
         ...POWER_POLICIES.map((policy) => {
           const policyNights = policy.expectedPower === 0 ? null : Math.floor(state.shelter.power / policy.expectedPower);
           return {
@@ -376,13 +389,14 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
     }
     const radioMinutes = state.shelter.power >= 2 || inventoryCount(state.inventory, 'batteries') > 0 ? 60 : 120;
     const truthDay = difficultyConfig.truthDecisionDay;
+    const repair = repairPreview(state);
     return [
       { id: 'rest', label: '休息两小时', hint: '2小时 · 体力 +32 · 精神 +4', disabledReason: timedReason(state, 120), onSelect: () => run(performSurvivalAction(state, 'rest')) },
-      { id: 'repair', label: '修缮避难所', hint: '2小时 · 有工具与胶带时完整度 +16', disabledReason: timedReason(state, 120), onSelect: () => run(performSurvivalAction(state, 'repair')) },
+      { id: 'repair', label: '修缮避难所', hint: repair.material ? `2小时 · 胶带 -1 · 完整度 +${repair.amount} · 体力 -${repair.stamina}` : `2小时 · 今日一次临时支撑 · 完整度 +${repair.amount} · 体力 -${repair.stamina}`, disabledReason: timedReason(state, 120) ?? repair.disabledReason, onSelect: () => run(performSurvivalAction(state, 'repair')) },
       { id: 'craft', label: '家具、烹饪与制作', hint: '使用自带厨房家具，或进行净水和加固', disabledReason: minutesRemaining(state) < 20 ? '今天已没有制作时间' : null, onSelect: () => setMode('craft') },
       { id: 'radio', label: '收听广播', hint: `${formatDuration(radioMinutes)} · 优先耗电 2 或电池 1`, disabledReason: timedReason(state, radioMinutes) ?? (inventoryCount(state.inventory, 'radio') < 1 ? '缺少短波收音机' : null), onSelect: () => run(performSurvivalAction(state, 'radio')) },
       { id: 'contact', label: state.debt ? '联络、交易与偿还债务' : '主动联络与幸存者交易', hint: '主动选择已解锁人物，培养信任、提供物资或邀请结盟', onSelect: () => { setSelectedContactId(null); setMode('contact'); } },
-      { id: 'explore', label: '外出探索', hint: `4小时 · 选择 6 个地点之一 · ${state.difficulty === 'easy' ? '简易额外战利品 +1' : '危险受状态影响'}`, disabledReason: timedReason(state, 240), onSelect: () => setMode('explore') },
+      { id: 'explore', label: '外出探索', hint: `选择 6 个细化地点 · ${state.difficulty === 'hard' ? '普通战利品约为标准的 65%，剧情物品不减' : '危险与收益受状态和路线影响'}`, disabledReason: timedReason(state, 120), onSelect: () => setMode('explore') },
       { id: 'power', label: '供电与夜间负载', hint: `当前 ${state.shelter.power} 电 · 调整保鲜、照明或节电策略`, onSelect: () => setMode('power') },
       ...(state.survivalDay >= truthDay && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') ? [{ id: 'truth', label: '搭建外联中继', hint: '3小时 · 每轮只有一次发送窗口；失败后仍可普通撤离', disabledReason: truthEndingReady(state) ? timedReason(state, 180) : `需要证据 3（${truthEvidenceCount(state)}）、盟友 2（${trustedNpcCount(state)}）与已解码广播`, danger: `${dangerRisk(state, 46).risk}% 受险`, onSelect: () => run(performSurvivalAction(state, 'truth')) }] : []),
       { id: 'end', label: '就寝并进行夜间结算', hint: `现在 ${formatClock(state.clockMinutes)} · 尚余 ${formatDuration(minutesRemaining(state))}`, onSelect: () => run(endDay(state)) },
@@ -424,10 +438,10 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         ? selectedTarget ? '不同解法会消耗不同的时间与体力，并产生不同收获' : `已发现 ${state.expedition.discoveredScenes.length}/${expeditionLocation?.scenes.length ?? 0} 个区域 · 已为返程预留时间`
       : event
             ? '选择将耗时 30 分钟并写入日志'
-            : mode === 'trade'
-              ? `封锁第 ${state.survivalDay} 天 · 报价明日刷新；重载网页不会改变今日结果`
+              : mode === 'trade'
+              ? `封锁第 ${state.survivalDay} 天 · 报价明日刷新；${state.difficulty === 'easy' ? '可逐笔交换' : '今日最多成交一笔'}`
               : mode === 'contact'
-                ? '每名人物每天可主动联络一次；通讯优先使用 1 点电力，其次电池，也可手摇发电'
+                ? `今日还可主动联络 ${contactsRemainingToday(state)}/${activeContactLimit(state.difficulty)} 次；艰难难度每次优先消耗 2 点电力`
               : `当前 ${formatClock(state.clockMinutes)} · 距日终 ${formatDuration(minutesRemaining(state))}`;
 
   return (
@@ -524,7 +538,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                 <p><strong>{activeWish.name}</strong><br />{activeWish.description}</p>
                 <dl className="daily-progress">
                   <div><dt>进度</dt><dd>{dailyWishProgress(state)}</dd></div>
-                  <div><dt>达成奖励</dt><dd>+{activeWish.rewardPoints} 愿望点</dd></div>
+                  <div><dt>达成奖励</dt><dd>+{dailyWishRewardPoints(state)} 愿望点</dd></div>
                 </dl>
               </>
             ) : state.flags.includes('evacuation-choice-pending') ? (
@@ -571,6 +585,19 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               </section>
             );
           })()}
+          {state.phase === 'survival' && state.difficulty === 'hard' && (
+            <section className="siege-panel">
+              <span className="section-kicker">LATE-GAME ATTRITION</span>
+              <h2>{pressure.name}</h2>
+              <p>{pressure.description}这些数值由同一套压力表驱动，日志与夜间结算会逐项记录。</p>
+              <dl className="daily-progress">
+                <div><dt>今夜饱腹</dt><dd>−{pressure.foodDrain}</dd></div>
+                <div><dt>今夜水分</dt><dd>−{pressure.waterDrain}</dd></div>
+                <div><dt>睡眠体力</dt><dd>+{pressure.staminaRecovery}</dd></div>
+                <div><dt>每行动 2 小时</dt><dd>饱腹 −{pressure.activityFoodPerTwoHours} / 水分 −{pressure.activityWaterPerTwoHours}</dd></div>
+              </dl>
+            </section>
+          )}
           {state.phase === 'survival' && (
             <section className="risk-guide">
               <span className="section-kicker">DANGER CHECK</span>

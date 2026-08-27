@@ -65,7 +65,8 @@ test('标准与艰难的重复探索产出受限，艰难可能空手返回', ()
     state.stats.stamina = 100;
     const repeated = exploreLocation(state, 'qinghe-clinic');
     assert.equal(repeated.ok, true);
-    assert.equal(repeated.state.logs.at(-1)?.body.includes('没有能带走的物资'), difficulty === 'hard');
+    const explorationLog = [...repeated.state.logs].reverse().find((log) => log.title.startsWith('探索 ·'));
+    assert.equal(explorationLog?.body.includes('没有能带走的物资'), difficulty === 'hard');
   }
 });
 

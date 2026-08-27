@@ -1,4 +1,5 @@
 import { CONTACT_MAP, type ContactNpcId, type ContactOptionDefinition } from '../data/contacts.ts';
+import { activeContactLimit } from '../data/pressure.ts';
 import { NPC_MAP } from '../data/world.ts';
 import type { EventEffect, GameState } from '../types.ts';
 import { completeTimedAction, type EngineResult } from './day.ts';
@@ -37,10 +38,21 @@ export function contactDayFlag(state: GameState, npcId: string): string {
   return `contact:${state.survivalDay}:${npcId}`;
 }
 
+export function contactsUsedToday(state: GameState): number {
+  const prefix = `contact:${state.survivalDay}:`;
+  return state.flags.filter((flag) => flag.startsWith(prefix)).length;
+}
+
+export function contactsRemainingToday(state: GameState): number {
+  return Math.max(0, activeContactLimit(state.difficulty) - contactsUsedToday(state));
+}
+
 export function contactMethod(state: GameState): { minutes: number; label: string; effect: EventEffect } {
-  if (state.shelter.power >= 1) return { minutes: CONTACT_MINUTES, label: '电力 -1', effect: { shelter: { power: -1 } } };
+  const powerCost = state.difficulty === 'hard' ? 2 : 1;
+  if (state.shelter.power >= powerCost) return { minutes: CONTACT_MINUTES, label: `电力 -${powerCost}`, effect: { shelter: { power: -powerCost } } };
   if (inventoryCount(state.inventory, 'batteries') >= 1) return { minutes: CONTACT_MINUTES, label: '电池 -1', effect: { inventory: { batteries: -1 } } };
-  return { minutes: CONTACT_MINUTES + 30, label: '手摇发电，体力 -10', effect: { stats: { stamina: -10 } } };
+  const staminaCost = state.difficulty === 'hard' ? 12 : 10;
+  return { minutes: CONTACT_MINUTES + 30, label: `手摇发电，体力 -${staminaCost}`, effect: { stats: { stamina: -staminaCost } } };
 }
 
 export function contactOptions(npcId: string): ContactOptionDefinition[] {
@@ -58,10 +70,12 @@ export function activeContactDisabledReason(state: GameState, npcId: string, opt
   const contact = CONTACT_MAP[npcId as ContactNpcId];
   if (!npc || !contact || !isNpcUnlocked(state, npcId)) return '尚未通过广播建立这条联络';
   if (state.flags.includes(contactDayFlag(state, npcId))) return `今天已经主动联络过${npc.name}`;
+  if (contactsRemainingToday(state) <= 0) return `今日联络额度已用完（${activeContactLimit(state.difficulty)} 次）`;
   const method = contactMethod(state);
   const timeReason = timeDisabledReason(state, method.minutes);
   if (timeReason) return timeReason;
-  if (method.label.includes('手摇') && state.stats.stamina <= 10) return '体力不足以维持手摇通话';
+  const handCrankCost = -(method.effect.stats?.stamina ?? 0);
+  if (handCrankCost > 0 && state.stats.stamina <= handCrankCost) return `体力不足以维持手摇通话（需要高于 ${handCrankCost}）`;
   if (optionId === 'alliance') {
     if (state.flags.includes(npcAllianceFlag(npcId))) return '已经结盟';
     if ((state.relationships[npcId] ?? 0) < npc.allianceThreshold) return `信任需要 ${npc.allianceThreshold}（当前 ${state.relationships[npcId] ?? 0}）`;
