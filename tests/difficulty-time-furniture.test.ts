@@ -60,14 +60,12 @@ test('标准与艰难的重复探索产出受限，艰难可能空手返回', ()
   for (const difficulty of ['normal', 'hard'] as const) {
     let state = survivalState(`repeat-loot-${difficulty}`, difficulty);
     state.stats.stamina = 100;
-    state = exploreLocation(state, 'riverside-market').state;
+    state = exploreLocation(state, 'qinghe-clinic').state;
     state.currentEventId = undefined;
     state.stats.stamina = 100;
-    const before = Object.values(state.inventory).flat().reduce((sum, batch) => sum + batch.quantity, 0);
-    const repeated = exploreLocation(state, 'riverside-market');
-    const after = Object.values(repeated.state.inventory).flat().reduce((sum, batch) => sum + batch.quantity, 0);
+    const repeated = exploreLocation(state, 'qinghe-clinic');
     assert.equal(repeated.ok, true);
-    assert.equal(after - before, difficulty === 'normal' ? 1 : 0);
+    assert.equal(repeated.state.logs.at(-1)?.body.includes('没有能带走的物资'), difficulty === 'hard');
   }
 });
 

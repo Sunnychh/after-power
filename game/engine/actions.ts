@@ -358,6 +358,7 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
 export function exploreLocation(state: GameState, locationId: string): Result {
   const location = LOCATION_MAP[locationId];
   if (!location || state.phase !== 'survival') return { state, ok: false, message: '无法前往该地点。' };
+  if (locationId === 'riverside-market') return { state, ok: false, message: '河西生活超市已改为分区深入探索，请从地点列表进入。' };
   const started = beginTimedAction(state, 240);
   if (!started.state) return { state, ok: false, message: started.reason ?? '今天没有足够时间探索。' };
   let next = started.state;

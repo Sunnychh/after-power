@@ -117,6 +117,11 @@ export function createInitialState(
     broadcasts: 0,
     cookingAttempts: 0,
     cookingSkill: 0,
+    explorationSkills: {
+      lockpicking: { level: 0, xp: 0 },
+      toolUse: { level: 0, xp: 0 },
+      search: { level: 0, xp: 0 },
+    },
     isolationNights: 0,
     storePurchases: {},
     relationships: Object.fromEntries(NPCS.map((npc) => [npc.id, 0])),

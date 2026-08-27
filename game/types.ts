@@ -157,6 +157,23 @@ export interface FurnitureUnitState {
 
 export type FurnitureState = Record<FurnitureId, FurnitureUnitState>;
 
+export type ExplorationSkillId = 'lockpicking' | 'toolUse' | 'search';
+
+export interface SkillProgress {
+  level: number;
+  xp: number;
+}
+
+export type ExplorationSkills = Record<ExplorationSkillId, SkillProgress>;
+
+export interface ExpeditionState {
+  locationId: string;
+  sceneId: string;
+  startedAtMinutes: number;
+  discoveredScenes: string[];
+  gathered: string[];
+}
+
 export type OutcomeId = 'death' | 'survivor' | 'truth';
 
 export interface Outcome {
@@ -221,6 +238,8 @@ export interface GameState {
   broadcasts: number;
   cookingAttempts: number;
   cookingSkill: number;
+  explorationSkills: ExplorationSkills;
+  expedition?: ExpeditionState;
   isolationNights: number;
   storePurchases: Record<string, number>;
   shoppingTrip?: ShoppingTrip;

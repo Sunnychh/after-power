@@ -85,6 +85,21 @@ function removeStaleBatches(state: GameState): GameState {
   if (typeof next.autoRations !== 'boolean') next.autoRations = next.difficulty === 'easy';
   if (!Number.isFinite(next.cookingAttempts)) next.cookingAttempts = 0;
   if (!Number.isFinite(next.cookingSkill)) next.cookingSkill = Math.min(5, Math.floor(next.cookingAttempts / 3));
+  if (!next.explorationSkills || typeof next.explorationSkills !== 'object') {
+    next.explorationSkills = { lockpicking: { level: 0, xp: 0 }, toolUse: { level: 0, xp: 0 }, search: { level: 0, xp: 0 } };
+  }
+  for (const skill of ['lockpicking', 'toolUse', 'search'] as const) {
+    const progress = next.explorationSkills[skill];
+    if (!progress || !Number.isFinite(progress.xp)) next.explorationSkills[skill] = { level: 0, xp: 0 };
+    else next.explorationSkills[skill] = { xp: Math.max(0, progress.xp), level: Math.min(5, Math.floor(Math.max(0, progress.xp) / 3)) };
+  }
+  if (next.expedition && (
+    next.expedition.locationId !== 'riverside-market'
+    || !['entrance', 'checkout', 'food', 'household', 'cold-storage', 'toilet', 'warehouse'].includes(next.expedition.sceneId)
+    || !Array.isArray(next.expedition.discoveredScenes)
+    || !Array.isArray(next.expedition.gathered)
+    || next.phase !== 'survival'
+  )) next.expedition = undefined;
   if (!Number.isFinite(next.isolationNights)) next.isolationNights = 0;
   if (!next.storePurchases || typeof next.storePurchases !== 'object') next.storePurchases = {};
   if (next.debt && (!Number.isFinite(next.debt.balance) || next.debt.balance <= 0)) next.debt = undefined;
@@ -136,6 +151,7 @@ function removeStaleBatches(state: GameState): GameState {
     next.dailyPlan = undefined;
     next.dailySettlement = undefined;
     next.shoppingTrip = undefined;
+    next.expedition = undefined;
     next.feedback = [];
     next.flags = next.flags.filter((flag) => {
       if (flag === 'evacuation-choice-pending') return false;
@@ -147,7 +163,9 @@ function removeStaleBatches(state: GameState): GameState {
     next.flags = next.flags.filter((flag) => !flag.startsWith('ending:'));
     if (next.dailySettlement) next.dailyPlan = undefined;
     if (next.phase !== 'prep') next.shoppingTrip = undefined;
+    if (next.phase !== 'survival') next.expedition = undefined;
   }
+  if (!next.expedition) delete next.expedition;
   return ensureAssignedDailyWish(next);
 }
 

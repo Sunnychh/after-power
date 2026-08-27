@@ -229,7 +229,7 @@ export function finishRun(state: GameState, outcome: Outcome): GameState {
     if (flag.startsWith('ending:')) return flag === `ending:${outcome.id}`;
     return true;
   });
-  return { ...state, flags, phase: 'ended', outcome: resolvedOutcome, currentEventId: undefined, dailyPlan: undefined, dailySettlement: undefined };
+  return { ...state, flags, phase: 'ended', outcome: resolvedOutcome, currentEventId: undefined, dailyPlan: undefined, dailySettlement: undefined, expedition: undefined };
 }
 
 export function awardOutcome(meta: MetaState, state: GameState): MetaState {

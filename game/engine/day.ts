@@ -60,6 +60,7 @@ export function completeTimedAction(state: GameState, durationMinutes: number, a
 
 export function endDay(state: GameState, reachedByClock = false): EngineResult {
   if (state.currentEventId) return { state, ok: false, message: '先处理眼前的事件。' };
+  if (state.expedition) return { state, ok: false, message: '你还在外面，先返回避难所。' };
   const dailyReason = dailyActionBlockedReason(state);
   if (dailyReason) return { state, ok: false, message: dailyReason };
   const beforeNight = structuredClone(state);

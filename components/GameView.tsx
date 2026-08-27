@@ -7,6 +7,7 @@ import { EVENT_MAP } from '../game/data/events.ts';
 import { formatItemEffects, STORE_DESCRIPTIONS, STORE_NAMES } from '../game/data/items.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { LOAN_MAP } from '../game/data/loans.ts';
+import { DEEP_LOCATIONS, deepScene, deepTargetFlag } from '../game/data/deep-exploration.ts';
 import {
   availableStoreItems,
   endDay,
@@ -35,6 +36,7 @@ import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount
 import { dangerRisk } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
 import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
+import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, EXPLORATION_SKILL_LABELS, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
@@ -51,6 +53,7 @@ const TUTORIAL = [
   { title: '每天一个明确愿望', body: '系统每天直接给出一件当天能完成的事。达成后夜间领取奖励；没有完成也不会扣除任何状态或点数。' },
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
   { title: '越早采购越稳妥', body: '第一天商店货最全，此后会逐日限购和缺货。每次出门还有随身负重上限；第七天闯商店可能受伤，也可能在无人收银时带回一包物资。' },
+  { title: '超市可以逐区深入', body: '封锁后进入河西生活超市，可在七个内部区域间移动并查看具体目标。不同工具、技能与情报会解锁不同处理方法；随时可以放弃目标并返回，系统会预留返程时间。' },
   { title: '危险不是纯碰运气', body: '选项会先显示受险概率。系统再生成 1—100 的种子随机值：大于风险线就安全，低于风险线会受损，低于风险线一半会是严重后果。状态、装备、情报、难度和债务都会改变风险线。' },
 ];
 
@@ -72,14 +75,21 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const [mode, setMode] = useState<Mode>('main');
   const [shop, setShop] = useState<StoreId | null>(() => state.shoppingTrip?.store ?? null);
   const [drawer, setDrawer] = useState(false);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const event = state.currentEventId ? EVENT_MAP[state.currentEventId] : undefined;
   const difficultyConfig = DIFFICULTY_MAP[state.difficulty];
   const activeWish = state.dailyPlan ? DAILY_WISH_MAP[state.dailyPlan.wishId] : undefined;
   const settlementWish = state.dailySettlement ? DAILY_WISH_MAP[state.dailySettlement.wishId] : undefined;
+  const expeditionLocation = state.expedition ? DEEP_LOCATIONS[state.expedition.locationId] : undefined;
+  const expeditionScene = state.expedition ? deepScene(state.expedition.locationId, state.expedition.sceneId) : undefined;
+  const selectedTarget = expeditionScene?.targets.find((target) => target.id === selectedTargetId);
 
   const run = (result: EngineResult) => {
     const ok = onResult(result);
-    if (ok) setMode('main');
+    if (ok) {
+      setMode('main');
+      setSelectedTargetId(null);
+    }
     return ok;
   };
 
@@ -137,6 +147,36 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           onSelect: () => run(chooseEvacuation(state, 'remain')),
         },
       ];
+    }
+    if (state.expedition && expeditionLocation && expeditionScene) {
+      if (selectedTarget && !state.flags.includes(deepTargetFlag(expeditionLocation.id, selectedTarget.id))) {
+        return [
+          ...selectedTarget.options.map((option) => ({
+            id: `${selectedTarget.id}-${option.id}`,
+            label: option.label,
+            hint: option.hint,
+            disabledReason: deepOptionDisabledReason(state, selectedTarget.id, option.id),
+            danger: option.danger ? `${dangerRisk(state, option.danger).risk}% 受险` : undefined,
+            onSelect: () => run(resolveDeepTarget(state, selectedTarget.id, option.id)),
+          })),
+          { id: 'target-back', label: '先不处理', hint: '返回当前区域，不耗时也没有惩罚', onSelect: () => setSelectedTargetId(null) },
+        ];
+      }
+      const targets: ActionChoice[] = expeditionScene.targets.map((target) => {
+        const resolved = state.flags.includes(deepTargetFlag(expeditionLocation.id, target.id));
+        return {
+          id: `inspect-${target.id}`,
+          label: resolved ? `已处理 · ${target.name}` : `查看 · ${target.name}`,
+          hint: resolved ? '这里已经搜查完毕，所得物资不会重复生成' : target.observation,
+          disabledReason: resolved ? '已经处理完毕' : undefined,
+          onSelect: () => setSelectedTargetId(target.id),
+        };
+      });
+      const moves: ActionChoice[] = expeditionScene.connections.map((sceneId) => {
+        const destination = deepScene(expeditionLocation.id, sceneId)!;
+        return { id: `move-${sceneId}`, label: `前往 · ${destination.name}`, hint: '10分钟 · 体力 -1', onSelect: () => run(moveDeepExplore(state, sceneId)) };
+      });
+      return [...targets, ...moves, { id: 'leave-expedition', label: '结束探索并返回避难所', hint: `${formatDuration(expeditionLocation.returnMinutes)} · 体力 -3 · 结算本次带回物资`, onSelect: () => run(leaveDeepExplore(state)) }];
     }
     if (event) {
       return event.options.map((option, index) => ({
@@ -204,11 +244,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         const adjusted = dangerRisk(state, location.risk + Math.min(18, (state.survivalDay - 1) * 2) + weatherPenalty).risk;
         return {
           id: location.id,
-          label: location.name,
-          hint: `${location.district} · 4小时 · ${state.visited[location.id] ? `已探索 ${state.visited[location.id]} 次` : '首次可发现线索'}`,
-          danger: `${adjusted}% 受险`,
-          disabledReason: timedReason(state, 240),
-          onSelect: () => run(exploreLocation(state, location.id)),
+          label: location.id === 'riverside-market' ? `深入探索 · ${location.name}` : location.name,
+          hint: location.id === 'riverside-market'
+            ? `${location.district} · 往返各1小时 · 7个内部区域 · 现场行动分别计时`
+            : `${location.district} · 4小时 · ${state.visited[location.id] ? `已探索 ${state.visited[location.id]} 次` : '首次可发现线索'}`,
+          danger: location.id === 'riverside-market' ? `${dangerRisk(state, 14 + Math.min(12, Math.max(0, state.survivalDay - 1))).risk}% 路途受险` : `${adjusted}% 受险`,
+          disabledReason: location.id === 'riverside-market' ? deepStartDisabledReason(state, location.id) : timedReason(state, 240),
+          onSelect: () => run(location.id === 'riverside-market' ? beginDeepExplore(state, location.id) : exploreLocation(state, location.id)),
         };
       });
       const controlAccess = substationControlAccess(state);
@@ -280,6 +322,8 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       ? state.dailySettlement.wishAchieved ? '从今日结算中挑选一项奖励' : '确认今日愿望结果'
       : state.flags.includes('evacuation-choice-pending')
         ? '选择这一次如何离开'
+        : state.expedition
+          ? selectedTarget ? `处理 · ${selectedTarget.name}` : `探索 · ${expeditionScene?.name ?? '未知区域'}`
         : event
               ? '必须作出选择'
               : mode === 'main'
@@ -299,6 +343,8 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       ? '本轮状态已经锁定并保存；返回标题页后可查看记忆或开始下一轮'
     : state.flags.includes('evacuation-choice-pending')
       ? '结局由你选择，不会因满足隐藏条件自动覆盖普通撤离'
+      : state.expedition
+        ? selectedTarget ? '不同解法会消耗不同的时间与体力，并产生不同收获' : `已发现 ${state.expedition.discoveredScenes.length}/${expeditionLocation?.scenes.length ?? 0} 个区域 · 已为返程预留时间`
       : event
             ? '选择将耗时 30 分钟并写入日志'
             : `当前 ${formatClock(state.clockMinutes)} · 距日终 ${formatDuration(minutesRemaining(state))}`;
@@ -346,6 +392,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <p>{state.flags.includes('truth-transmitted')
                 ? '证据已经送出，但这不会替你决定结局。你可以跟随公开撤离车队，也可以和同伴护送设备走维修通道。'
                 : '公开撤离通道会开放四小时。证据路线没有建立，活着离开仍然是一个完整的选择。'}</p>
+            </article>
+          ) : state.expedition && expeditionLocation && expeditionScene ? (
+            <article className="current-story expedition-story" tabIndex={-1}>
+              <span className="story-time">{expeditionLocation.name.toUpperCase()} / {formatClock(state.clockMinutes)}</span>
+              <h2>{selectedTarget?.name ?? expeditionScene.name}</h2>
+              <p>{selectedTarget?.observation ?? expeditionScene.text}</p>
+              <span className="chain-tag">已发现 {state.expedition.discoveredScenes.length}/{expeditionLocation.scenes.length} 区域 · 本次所得 {state.expedition.gathered.length} 类</span>
             </article>
           ) : event ? (
             <article className="current-story" tabIndex={-1}>
@@ -427,6 +480,16 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <p>标签中的百分比就是当前受险概率。行动时生成 1—100 的种子随机值：<strong>大于风险线＝安全</strong>；落在风险线以内＝轻微后果；低于风险线一半＝严重后果。日志会列出基础风险及每个加减因素。</p>
             </section>
           )}
+          <section className="exploration-skills">
+            <span className="section-kicker">FIELD SKILLS</span>
+            <h2>现场技能</h2>
+            <dl className="daily-progress">
+              {(Object.entries(state.explorationSkills) as Array<[keyof typeof state.explorationSkills, { level: number; xp: number }]>).map(([skill, progress]) => (
+                <div key={skill}><dt>{EXPLORATION_SKILL_LABELS[skill]}</dt><dd>{progress.level}级 · {progress.xp} XP</dd></div>
+              ))}
+            </dl>
+            <p>每 3 点经验提升 1 级，最高 5 级。技能、工具与情报会共同解锁安静或高收益的处理方式。</p>
+          </section>
           {state.isolationNights > 0 && (
             <section className="isolation-panel">
               <span className="section-kicker">ISOLATION WARNING</span>

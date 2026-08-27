@@ -151,8 +151,8 @@ test('低精神且无人联络会累计孤立夜数，第三夜进入孤立死�
 test('同种子、同操作得到一致探索结果', () => {
   const first = survivalState('AFTERLIGHT-001');
   const second = survivalState('AFTERLIGHT-001');
-  const a = exploreLocation(first, 'riverside-market');
-  const b = exploreLocation(second, 'riverside-market');
+  const a = exploreLocation(first, 'qinghe-clinic');
+  const b = exploreLocation(second, 'qinghe-clinic');
   assert.equal(a.ok, true);
   assert.deepEqual(a.state, b.state);
 });
