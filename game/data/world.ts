@@ -33,6 +33,9 @@ export const NPCS: NpcDefinition[] = [
 
 export const NPC_MAP = Object.fromEntries(NPCS.map((npc) => [npc.id, npc]));
 
+// 每次有效广播只建立一条新联络，顺序兼顾前期生存帮助与后期真相线。
+export const NPC_BROADCAST_ORDER = ['chen-meng', 'lin-zhou', 'qiu-lan', 'pan-yue'] as const;
+
 export const LOCATIONS: LocationDefinition[] = [
   {
     id: 'riverside-market',

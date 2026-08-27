@@ -128,7 +128,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'horde-warning', title: '远处成片的脚步', phase: 'survival', minDay: 6, maxDay: 6,
+    id: 'horde-warning', title: '远处成片的脚步', phase: 'survival', minDay: 6, maxDay: 6, npc: 'chen-meng',
     text: '傍晚，封锁线方向传来连续的金属碰撞。陈檬在楼道里逐户提醒：两天内会有大批感染者沿主路移动。', chain: { id: 'horde', step: 1 },
     options: [
       { label: '用木板补住楼道窗', hint: '木板 -1，完整度 +10', result: '钉锤声把整栋楼都叫醒了。有人开始跟着加固自家门。', requirements: [{ item: 'wood-board', quantity: 1 }], effects: { inventory: { 'wood-board': -1 }, shelter: { integrity: 10, reinforcement: 1 }, addFlags: ['horde-prepared'] } },
@@ -156,7 +156,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'fridge-last-meal', title: '冰箱里的最后一顿', phase: 'survival', minDay: 1, maxDay: 3,
+    id: 'fridge-last-meal', title: '冰箱里的最后一顿', phase: 'survival', minDay: 1, maxDay: 3, npc: 'chen-meng',
     text: '停电后的冰箱越来越暖。里面还剩半盒鸡蛋和一把青菜，再放一天就只能丢掉。',
     options: [
       { label: '用燃料做一顿热饭', hint: '燃料 -3，饱腹 +20，精神 +8', result: '锅里冒出的热气让厨房短暂恢复了日常的样子。', requirements: [{ minStat: { stamina: 1 } }], effects: { shelter: { fuel: -3 }, stats: { satiety: 20, morale: 8 } } },
@@ -165,7 +165,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'balcony-fire', title: '对楼的阳台火', phase: 'survival', minDay: 3,
+    id: 'balcony-fire', title: '对楼的阳台火', phase: 'survival', minDay: 3, npc: 'chen-meng',
     text: '对楼有人在阳台烧纸箱煮水，火舌已经舔到晾衣架。风正朝你这栋楼吹。',
     options: [
       { label: '大声提醒并协助灭火', hint: '水分 -8，体力 -8，精神 +4', result: '几盆水从不同窗口泼下去，火终于缩回铁桶。', effects: { stats: { hydration: -8, stamina: -8, morale: 4 }, relationships: { 'chen-meng': 4 } } },
@@ -174,7 +174,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'battery-trade', title: '隔门的交易', phase: 'survival', minDay: 3,
+    id: 'battery-trade', title: '隔门的交易', phase: 'survival', minDay: 3, npc: 'chen-meng',
     text: '一个陌生男人在楼道里逐户问：一组电池换两瓶水。他不肯摘下摩托车头盔。',
     options: [
       { label: '用两瓶水交换', hint: '水 -2，电池 +1', result: '交易从门缝完成。电池包装没拆过，是真的。', requirements: [{ item: 'water-bottle', quantity: 2 }], effects: { inventory: { 'water-bottle': -2, batteries: 1 } } },
@@ -210,7 +210,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'false-evacuation', title: '白色面包车', phase: 'survival', minDay: 5,
+    id: 'false-evacuation', title: '白色面包车', phase: 'survival', minDay: 5, npc: 'chen-meng',
     text: '一辆没有标识的白色面包车用喇叭喊“临时撤离”，要求每户只带身份证下楼。官方频道对此只字未提。',
     options: [
       { label: '记录车牌和行驶方向', hint: '情报 +1，证据 +1', result: '车牌尾号与征调药品的车辆登记一致。', effects: { intel: 1, addFlags: ['evidence-van'] } },
@@ -228,7 +228,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'roof-solar', title: '短暂的晴窗', phase: 'survival', minDay: 5, weather: ['晴冷'],
+    id: 'roof-solar', title: '短暂的晴窗', phase: 'survival', minDay: 5, weather: ['晴冷'], npc: 'chen-meng',
     text: '云层裂开两个小时，阳光落在积灰的楼顶。所有能充电的东西都被摆到了窗边。',
     options: [
       { label: '架起折叠太阳能板', hint: '电力 +8', result: '电量缓慢爬升。很少有数字能让人这样安心。', requirements: [{ item: 'solar-charger', quantity: 1 }], effects: { shelter: { power: 8 } } },
@@ -255,7 +255,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'fuel-smell', title: '楼下的汽油味', phase: 'survival', minDay: 7,
+    id: 'fuel-smell', title: '楼下的汽油味', phase: 'survival', minDay: 7, npc: 'pan-yue',
     text: '一楼传来浓重汽油味。有人把燃料倒进饮料瓶，瓶盖已经被腐蚀发白。',
     options: [
       { label: '拿密封燃料罐帮忙转装', hint: '燃料 +4，潘岳信任 +4', result: '危险的塑料瓶被清空，对方分给你一点燃料。', requirements: [{ item: 'fuel-can', quantity: 1 }], effects: { shelter: { fuel: 4 }, relationships: { 'pan-yue': 4 } } },
@@ -283,7 +283,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'supply-drone', title: '坠落的配送无人机', phase: 'survival', minDay: 9,
+    id: 'supply-drone', title: '坠落的配送无人机', phase: 'survival', minDay: 9, npc: 'lin-zhou',
     text: '一架小型配送无人机撞上对楼空调架，挂在两栋楼之间的电缆上。透明货舱里看得见药盒。',
     options: [
       { label: '用绳子从天台勾回来', hint: '需要绳子；危险：中；药品 +2', requirements: [{ item: 'rope', quantity: 1 }], danger: 35, result: '绳结在第三次才套住机臂。货舱里有绷带和抗生素。', effects: { inventory: { bandage: 1, antibiotics: 1 }, stats: { stamina: -8 } } },
@@ -301,7 +301,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'checkpoint-flare', title: '封锁线外的信号弹', phase: 'survival', minDay: 11,
+    id: 'checkpoint-flare', title: '封锁线外的信号弹', phase: 'survival', minDay: 11, npc: 'qiu-lan',
     text: '东边升起一枚橙色信号弹。广播说那是撤离通道测试，邱岚的频率却反复警告“不要去东门”。',
     options: [
       { label: '相信邱岚，记录信号时刻', hint: '邱岚信任 +8，情报 +1', result: '十分钟后，东边传来车辆急刹和人群骚动。', effects: { relationships: { 'qiu-lan': 8 }, intel: 1, addFlags: ['evidence-flare'] } },
@@ -310,7 +310,7 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
-    id: 'shared-dinner', title: '走廊里的晚饭', phase: 'survival', minDay: 11,
+    id: 'shared-dinner', title: '走廊里的晚饭', phase: 'survival', minDay: 11, npc: 'chen-meng',
     text: '陈檬提议把快过期的东西集中起来，在走廊尽头用一只锅煮掉。门仍各自关着，只留一条缝。',
     options: [
       { label: '贡献一份米和燃料', hint: '米砖 -1，燃料 -3，精神 +12，全员信任 +4', requirements: [{ item: 'rice', quantity: 1 }], result: '锅里只有米、豆子和盐，却是封锁以来最像一顿饭的晚饭。', effects: { inventory: { rice: -1 }, shelter: { fuel: -3 }, stats: { morale: 12, satiety: 18 }, relationships: { 'lin-zhou': 4, 'pan-yue': 4, 'qiu-lan': 4, 'chen-meng': 4 } } },

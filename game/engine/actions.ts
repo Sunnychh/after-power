@@ -8,6 +8,7 @@ import { determineOutcome, finishRun, truthEndingReady } from './outcomes.ts';
 import { seededPick } from './rng.ts';
 import { completeTimedAction, endDay, type EngineResult } from './day.ts';
 import { dailyActionBlockedReason, recordDailyAction } from './daily.ts';
+import { isNpcUnlocked, nextBroadcastContact } from './npcs.ts';
 import { timeDisabledReason } from './time.ts';
 import {
   absoluteDay,
@@ -123,7 +124,7 @@ export function purchaseItem(state: GameState, itemId: string, quantity = 1): Re
 
 export type PrepActionId = 'work' | 'reinforce' | 'water' | 'power' | 'investigate' | 'contact' | 'rest';
 
-export function performPrepAction(state: GameState, action: PrepActionId, npcId?: string): Result {
+export function performPrepAction(state: GameState, action: PrepActionId): Result {
   if (state.phase !== 'prep') return { state, ok: false, message: '灾前行动已经结束。' };
   const specs: Record<PrepActionId, { minutes: number; money?: number }> = {
     work: { minutes: 240 }, reinforce: { minutes: 180, money: 70 }, water: { minutes: 180, money: 90 }, power: { minutes: 180, money: 110 },
@@ -141,7 +142,7 @@ export function performPrepAction(state: GameState, action: PrepActionId, npcId?
     water: { money: -90, shelter: { water: 18, storage: 5 }, stats: { stamina: -6 } },
     power: { money: -110, shelter: { power: 8, generator: 1 }, stats: { stamina: -7 } },
     investigate: { intel: 1, stats: { stamina: -6, morale: -1 } },
-    contact: { relationships: npcId ? { [npcId]: 15 } : { 'chen-meng': 10 }, stats: { morale: 3 } },
+    contact: { stats: { morale: 3 }, addFlags: ['prep-neighbor-contact'] },
     rest: { stats: { stamina: 25, morale: 5 } },
   };
   const titles: Record<PrepActionId, string> = {
@@ -153,7 +154,7 @@ export function performPrepAction(state: GameState, action: PrepActionId, npcId?
     water: '你清洗水箱、换掉软管，并把每个容器都标上日期。',
     power: '备用电路完成切换测试。它不宽裕，但能让收音机和一盏灯工作。',
     investigate: '你把碎片消息按时间排列，找到一个官方通知没解释的空白。',
-    contact: '电话另一端沉默了一会儿，最终说：“真出事的话，我们互相敲门。”',
+    contact: '你没有写姓名，只在每户门缝下留了一张纸条：“真停电的话，收音机调到社区频段。”',
     rest: '你强迫自己离开清单。提前睡下也是准备的一部分。',
   };
   next = applyEffect(next, effects[action], titles[action]);
@@ -204,12 +205,16 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     next = applyEffect(next, { inventory: { 'wood-board': -1 }, shelter: { integrity: 20, reinforcement: 1 }, stats: { stamina: -9 } }, title);
   } else if (action === 'radio') {
     if (inventoryCount(next.inventory, 'radio') < 1) return { state, ok: false, message: '缺少短波收音机。' };
-    if (next.shelter.power >= 2) next = applyEffect(next, { shelter: { power: -2 }, intel: 1, stats: { morale: 3 } }, '收听广播');
-    else if (inventoryCount(next.inventory, 'batteries') > 0) next = applyEffect(next, { inventory: { batteries: -1 }, intel: 1, stats: { morale: 3 } }, '收听广播');
-    else next = applyEffect(next, { stats: { stamina: -12, morale: 1 }, intel: 1 }, '手摇收听');
+    const newContact = nextBroadcastContact(next);
+    const contactEffect = newContact && hasFlag(next, 'prep-neighbor-contact') ? { [newContact.id]: 8 } : undefined;
+    if (next.shelter.power >= 2) next = applyEffect(next, { shelter: { power: -2 }, intel: 1, stats: { morale: 3 }, relationships: contactEffect }, '收听广播');
+    else if (inventoryCount(next.inventory, 'batteries') > 0) next = applyEffect(next, { inventory: { batteries: -1 }, intel: 1, stats: { morale: 3 }, relationships: contactEffect }, '收听广播');
+    else next = applyEffect(next, { stats: { stamina: -12, morale: 1 }, intel: 1, relationships: contactEffect }, '手摇收听');
     next.broadcasts += 1;
+    if (newContact) addFlag(next, `npc-unlocked:${newContact.id}`);
     if (next.broadcasts >= 3) addFlag(next, 'decoded-broadcast');
-    title = '收听广播'; body = `你在噪声里记下第 ${next.broadcasts} 段有效讯息。${duration > 60 ? '无电时的手摇发电多花了一小时。' : '重复出现的道路名开始组成一条路线。'}`;
+    title = newContact ? `建立联络 · ${newContact.name}` : '收听广播';
+    body = `你在噪声里记下第 ${next.broadcasts} 段有效讯息。${newContact ? `${newContact.name}报出身份与固定联络时段，幸存者档案已解锁。${hasFlag(next, 'prep-neighbor-contact') ? '对方认出了你灾前留下的社区频段，初始信任 +8。' : ''}` : '已知呼号重复确认了道路与封锁信息。'}${duration > 60 ? ' 无电时的手摇发电多花了一小时。' : ''}`;
   } else if (action === 'generator') {
     if (next.shelter.generator < 1) return { state, ok: false, message: '灾前没有完成备用供电改造。' };
     if (next.shelter.fuel < 3) return { state, ok: false, message: '燃料不足 3。' };
@@ -230,10 +235,12 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     title = '处理雨水'; body = '水先经过滤布，再静置消毒。你分装成两只干净水瓶。';
     next = applyEffect(next, { inventory: { 'purifier-tablet': -1, 'filter-cloth': -1, 'water-bottle': 2 }, shelter: { water: -6 } }, title);
   } else if (action === 'trade-water') {
+    if (!isNpcUnlocked(next, 'chen-meng')) return { state, ok: false, message: '尚未通过广播与陈檬建立联络。' };
     if (inventoryCount(next.inventory, 'chocolate') < 1) return { state, ok: false, message: '缺少可交换的巧克力。' };
     title = '与幸存者交易'; body = '十二楼的人用两瓶水换走巧克力。他们说那是留给孩子生日的。';
     next = applyEffect(next, { inventory: { chocolate: -1, 'water-bottle': 2 }, relationships: { 'chen-meng': 3 } }, title);
   } else if (action === 'trade-med') {
+    if (!isNpcUnlocked(next, 'lin-zhou')) return { state, ok: false, message: '尚未通过广播与林舟建立联络。' };
     if (inventoryCount(next.inventory, 'batteries') < 1) return { state, ok: false, message: '缺少电池组。' };
     title = '与林舟交换'; body = '林舟收下一组电池，换给你一卷重新密封的绷带。';
     next = applyEffect(next, { inventory: { batteries: -1, bandage: 1 }, relationships: { 'lin-zhou': 3 } }, title);

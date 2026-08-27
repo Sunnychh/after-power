@@ -23,6 +23,7 @@ import {
 } from '../game/engine/actions.ts';
 import { furnitureActionDisabledReason, performFurnitureAction, type FurnitureActionId } from '../game/engine/furniture.ts';
 import { inventoryCount } from '../game/engine/inventory.ts';
+import { isNpcUnlocked } from '../game/engine/npcs.ts';
 import { claimDailyReward, continueAfterMissedWish, dailyWishProgress } from '../game/engine/daily.ts';
 import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
 import { clamp } from '../game/engine/state.ts';
@@ -33,7 +34,7 @@ import { InventoryPanel } from './InventoryPanel.tsx';
 import { Modal } from './Modal.tsx';
 import { StatusBar, StatusDock } from './StatusBar.tsx';
 
-type Mode = 'main' | 'shops' | 'contacts' | 'explore' | 'craft' | 'trade';
+type Mode = 'main' | 'shops' | 'explore' | 'craft' | 'trade';
 type EngineResult = { state: GameState; ok: boolean; message?: string };
 
 const TUTORIAL = [
@@ -146,16 +147,6 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         }));
         return [...storeChoices, { id: 'back', label: '返回准备清单', hint: '不耗时', onSelect: () => setMode('main') }];
       }
-      if (mode === 'contacts') {
-        const contactChoices: ActionChoice[] = NPCS.map((npc) => ({
-          id: npc.id,
-          label: `联系 ${npc.name}`,
-          hint: `1小时30分 · ${npc.role} · ${npc.stance}`,
-          disabledReason: timedReason(state, 90),
-          onSelect: () => run(performPrepAction(state, 'contact', npc.id)),
-        }));
-        return [...contactChoices, { id: 'back', label: '返回准备清单', hint: '不耗时', onSelect: () => setMode('main') }];
-      }
       const prep = (id: PrepActionId, label: string, hint: string, minutes: number, extra?: string | null): ActionChoice => ({
         id,
         label,
@@ -170,7 +161,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         prep('water', '改造储水', '¥90 · 储水 +18', 180, state.money < 90 ? '金钱不足（需要 ¥90）' : null),
         prep('power', '改善供电', '¥110 · 备用电力 +8', 180, state.money < 110 ? '金钱不足（需要 ¥110）' : null),
         prep('investigate', '调查灾难情报', '情报 +1 · 降低探索危险', 120),
-        { id: 'contacts', label: '联系邻居', hint: '1小时30分 · 选择一名幸存者建立信任', disabledReason: timedReason(state, 90), onSelect: () => setMode('contacts') },
+        prep('contact', '给邻居逐户留言', '灾后首次建立广播联络时获得初始信任', 90),
         prep('rest', '休息片刻', '体力 +25 · 精神 +5', 120),
         { id: 'end', label: '就寝并进入下一天', hint: `现在 ${formatClock(state.clockMinutes)} · 推进至 ${formatClock(dayEndMinutes(state))} 后结算`, onSelect: () => run(endDay(state)) },
       ];
@@ -223,8 +214,8 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
     }
     if (mode === 'trade') {
       return [
-        { id: 'trade-water', label: '用巧克力换水', hint: '1小时 · 巧克力 -1 · 瓶装水 +2', disabledReason: timedReason(state, 60) ?? (inventoryCount(state.inventory, 'chocolate') < 1 ? '缺少巧克力' : null), onSelect: () => run(performSurvivalAction(state, 'trade-water')) },
-        { id: 'trade-med', label: '用电池换绷带', hint: '1小时 · 电池 -1 · 绷带 +1', disabledReason: timedReason(state, 60) ?? (inventoryCount(state.inventory, 'batteries') < 1 ? '缺少电池组' : null), onSelect: () => run(performSurvivalAction(state, 'trade-med')) },
+        { id: 'trade-water', label: '用巧克力换水', hint: '1小时 · 巧克力 -1 · 瓶装水 +2', disabledReason: timedReason(state, 60) ?? (!isNpcUnlocked(state, 'chen-meng') ? '需要先通过广播联络陈檬' : inventoryCount(state.inventory, 'chocolate') < 1 ? '缺少巧克力' : null), onSelect: () => run(performSurvivalAction(state, 'trade-water')) },
+        { id: 'trade-med', label: '用电池换绷带', hint: '1小时 · 电池 -1 · 绷带 +1', disabledReason: timedReason(state, 60) ?? (!isNpcUnlocked(state, 'lin-zhou') ? '需要先通过广播联络林舟' : inventoryCount(state.inventory, 'batteries') < 1 ? '缺少电池组' : null), onSelect: () => run(performSurvivalAction(state, 'trade-med')) },
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
       ];
     }
@@ -255,9 +246,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                 ? '安排接下来的时间'
                 : mode === 'shops'
                   ? '选择采购地点'
-                  : mode === 'contacts'
-                    ? '联系谁'
-                    : mode === 'explore'
+                  : mode === 'explore'
                       ? '选择探索地点'
                       : mode === 'craft'
                         ? '家具、烹饪与制作'
@@ -384,7 +373,17 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             <h2>幸存者</h2>
             <div className="npc-list">
               {NPCS.map((npc) => {
+                const unlocked = isNpcUnlocked(state, npc.id);
                 const relation = state.relationships[npc.id] ?? 0;
+                if (!unlocked) {
+                  return (
+                    <article key={npc.id} className="npc-locked">
+                      <div><strong>未知呼号</strong><span>等待社区频段</span></div>
+                      <em>未联络</em>
+                      <p>继续收听有效广播，才能确认这名幸存者的身份与立场。</p>
+                    </article>
+                  );
+                }
                 return (
                   <article key={npc.id}>
                     <div><strong>{npc.name}</strong><span>{npc.role}</span></div>

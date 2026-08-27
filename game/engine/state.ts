@@ -20,6 +20,7 @@ import { addItem, inventoryCount, removeItem } from './inventory.ts';
 import { normalizeSeed, randomInt, seededPick } from './rng.ts';
 import { PREP_DAY_START } from './time.ts';
 import { createAssignedDailyPlan } from './wish-plan.ts';
+import { isNpcUnlocked } from './npcs.ts';
 
 export const GAME_SAVE_KEY = 'after-power-game-v3';
 export const PREVIOUS_GAME_SAVE_KEY = 'after-power-game-v2';
@@ -163,6 +164,7 @@ function eventEligible(state: GameState, event: GameEvent): boolean {
   const phase = state.phase === 'prep' ? 'prep' : 'survival';
   if (event.phase !== 'both' && event.phase !== phase) return false;
   if (state.seenEvents.includes(event.id)) return false;
+  if (event.npc && !isNpcUnlocked(state, event.npc)) return false;
   const day = phase === 'prep' ? state.prepDay : state.survivalDay;
   if (event.id === 'final-broadcast-window' && day !== DIFFICULTY_MAP[state.difficulty].truthDecisionDay) return false;
   if (event.minDay !== undefined && day < event.minDay) return false;

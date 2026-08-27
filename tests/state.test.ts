@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { ITEMS } from '../game/data/items.ts';
 import { EVENTS } from '../game/data/events.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
-import { endDay, exploreLocation, exploreSubstationControl, performPrepAction, substationControlAccess } from '../game/engine/actions.ts';
+import { endDay, exploreLocation, exploreSubstationControl, performPrepAction, performSurvivalAction, substationControlAccess } from '../game/engine/actions.ts';
 import { claimDailyReward, continueAfterMissedWish } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { applyEffect, createInitialState, selectEvent } from '../game/engine/state.ts';
 import { chooseEvacuation } from '../game/engine/outcomes.ts';
 import { ITEM_MAP } from '../game/data/items.ts';
 import { SURVIVAL_DAY_START, dayEndMinutes } from '../game/engine/time.ts';
+import { isNpcUnlocked } from '../game/engine/npcs.ts';
 import { activateDay } from './helpers.ts';
 
 function survivalState(seed: string) {
@@ -87,11 +88,39 @@ test('变电站备用路线可替代钥匙，但基础危险更高', () => {
   assert.equal(exploreSubstationControl(routed).ok, true);
 });
 
+test('有效广播按固定顺序逐个解锁人物，旧广播次数可直接恢复进度', () => {
+  let state = survivalState('npc-radio');
+  state.inventory = addItem(state.inventory, ITEM_MAP.radio, 1, 8);
+  assert.equal(NPCS.filter((npc) => isNpcUnlocked(state, npc.id)).length, 0);
+  const expected = ['chen-meng', 'lin-zhou', 'qiu-lan', 'pan-yue'];
+  for (let index = 0; index < expected.length; index += 1) {
+    state.shelter.power = 20;
+    const result = performSurvivalAction(state, 'radio');
+    assert.equal(result.ok, true);
+    state = result.state;
+    assert.equal(isNpcUnlocked(state, expected[index]), true);
+    assert.equal(NPCS.filter((npc) => isNpcUnlocked(state, npc.id)).length, index + 1);
+  }
+});
+
+test('未联络人物不会触发具名事件，交易也保持锁定', () => {
+  const state = survivalState('npc-locked');
+  state.inventory = addItem(state.inventory, ITEM_MAP.chocolate, 1, 8);
+  assert.equal(performSurvivalAction(state, 'trade-water').ok, false);
+  for (let index = 0; index < 20; index += 1) {
+    state.currentEventId = undefined;
+    const event = selectEvent(state);
+    assert.equal(event?.npc, undefined);
+    if (event) state.seenEvents.push(event.id);
+  }
+});
+
 test('真相路线选择事件按难度在关键日稳定出现', () => {
   for (const [difficulty, decisionDay] of [['easy', 8], ['normal', 12], ['hard', 12]] as const) {
     const state = createInitialState(`route-${difficulty}`, [], 0, difficulty);
     state.phase = 'survival';
     state.survivalDay = decisionDay;
+    state.broadcasts = 3;
     state.currentEventId = undefined;
     state.seenEvents = [];
     assert.equal(selectEvent(state)?.id, 'final-broadcast-window');
