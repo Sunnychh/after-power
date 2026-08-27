@@ -519,11 +519,12 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <section className="siege-panel">
                 <span className="section-kicker">HARD MODE SIEGE</span>
                 <h2>{wave.day === state.survivalDay ? `今夜 · ${wave.name}` : `下一波 · 第 ${wave.day} 夜`}</h2>
-                <p>{wave.warning}波次固定发生，方便提前安排材料和维修时间。</p>
+                <p>{wave.warning}{wave.day >= 8 ? '第 8 夜起围攻每天发生且持续增强；受压加固会磨损，必须安排材料和维修时间。' : '波次固定发生，方便提前安排材料和维修时间。'}</p>
                 <dl className="daily-progress">
                   <div><dt>冲击</dt><dd>{wave.pressure}</dd></div>
                   <div><dt>加固吸收</dt><dd>{Math.min(wave.pressure, mitigation)}</dd></div>
                   <div><dt>预计损伤</dt><dd>{siegeDamage(state, wave)}</dd></div>
+                  {wave.reinforcementWear > 0 && <div><dt>加固磨损</dt><dd>−{Math.min(state.shelter.reinforcement, wave.reinforcementWear)}</dd></div>}
                 </dl>
               </section>
             );
