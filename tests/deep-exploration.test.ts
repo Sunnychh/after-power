@@ -88,25 +88,91 @@ test('探索途中与技能进度可以通过本地存档完整恢复', () => {
     setItem(key: string, value: string) { this.data.set(key, value); }
     removeItem(key: string) { this.data.delete(key); }
   }
-  let state = beginDeepExplore(survival('deep-save'), 'riverside-market').state;
-  state = moveDeepExplore(state, 'food').state;
+  let state = beginDeepExplore(survival('deep-save'), 'qinghe-clinic').state;
+  state = moveDeepExplore(state, 'pharmacy').state;
   state.explorationSkills.search = { level: 2, xp: 7 };
   const storage = new MemoryStorage();
   saveGame(storage, state);
   const restored = loadGame(storage);
-  assert.equal(restored?.expedition?.sceneId, 'food');
+  assert.equal(restored?.expedition?.locationId, 'qinghe-clinic');
+  assert.equal(restored?.expedition?.sceneId, 'pharmacy');
   assert.deepEqual(restored?.explorationSkills.search, { level: 2, xp: 7 });
 });
 
-test('深入地点配置的连接、物品和方法引用全部有效', () => {
+test('六处深入地点都可进入、移动并安全撤离', () => {
+  assert.equal(Object.keys(DEEP_LOCATIONS).length, 6);
   for (const location of Object.values(DEEP_LOCATIONS)) {
+    const started = beginDeepExplore(survival(`enter-${location.id}`), location.id);
+    assert.equal(started.ok, true, `${location.name} 无法进入`);
+    assert.equal(started.state.expedition?.sceneId, location.entrance);
+    const entrance = location.scenes.find((scene) => scene.id === location.entrance)!;
+    const moved = moveDeepExplore(started.state, entrance.connections[0]);
+    assert.equal(moved.ok, true, `${location.name} 无法移动到相邻区域`);
+    const returned = moveDeepExplore(moved.state, location.entrance);
+    assert.equal(returned.ok, true, `${location.name} 的连接不是双向的`);
+    assert.equal(leaveDeepExplore(returned.state).ok, true, `${location.name} 无法撤离`);
+  }
+});
+
+test('变电站控制层支持钥匙与调查路线，且目标效果真实结算', () => {
+  let keyed = survival('substation-key-deep');
+  keyed.inventory = addItem(keyed.inventory, ITEM_MAP['station-key'], 1, absoluteDay(keyed));
+  keyed = beginDeepExplore(keyed, 'north-substation').state;
+  keyed = moveDeepExplore(keyed, 'lobby').state;
+  keyed = moveDeepExplore(keyed, 'control-floor').state;
+  assert.equal(deepOptionDisabledReason(keyed, 'control-core', 'key'), null);
+  assert.match(deepOptionDisabledReason(keyed, 'control-core', 'route') ?? '', /备用入口路线/);
+  const powerBefore = keyed.shelter.power;
+  const resolved = resolveDeepTarget(keyed, 'control-core', 'key');
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.state.shelter.power, powerBefore + 10);
+  assert.equal(inventoryCount(resolved.state.inventory, 'sample-tube'), 1);
+  assert.equal(inventoryCount(resolved.state.inventory, 'station-key'), 1);
+  assert.ok(resolved.state.flags.includes('substation-control-searched'));
+
+  let routed = survival('substation-route-deep');
+  routed.flags.push('substation-route');
+  routed = beginDeepExplore(routed, 'north-substation').state;
+  routed = moveDeepExplore(routed, 'lobby').state;
+  routed = moveDeepExplore(routed, 'control-floor').state;
+  assert.equal(deepOptionDisabledReason(routed, 'control-core', 'route'), null);
+});
+
+test('深入地点配置的连接、物品、效果和方法引用全部有效', () => {
+  for (const location of Object.values(DEEP_LOCATIONS)) {
+    assert.ok(location.approachRisk >= 0);
+    assert.ok(location.scenes.length >= 5, `${location.name} 内部区域不足`);
     const sceneIds = new Set(location.scenes.map((scene) => scene.id));
     assert.ok(sceneIds.has(location.entrance));
+    const reachable = new Set([location.entrance]);
+    const queue = [location.entrance];
+    while (queue.length) {
+      const nextSceneId = queue.shift();
+      const scene = location.scenes.find((entry) => entry.id === nextSceneId);
+      assert.ok(scene, `${location.name} 的连通图包含未知区域`);
+      for (const connection of scene.connections) if (!reachable.has(connection)) {
+        assert.ok(sceneIds.has(connection), `${scene.id} 连接到未知区域 ${connection}`);
+        reachable.add(connection);
+        queue.push(connection);
+      }
+    }
+    assert.equal(reachable.size, location.scenes.length, `${location.name} 存在不可达区域`);
     for (const scene of location.scenes) {
-      for (const connection of scene.connections) assert.ok(sceneIds.has(connection), `${scene.id} 连接到未知区域 ${connection}`);
-      for (const target of scene.targets) for (const option of target.options) {
-        for (const requirement of option.requirements ?? []) if (requirement.item) assert.ok(ITEM_MAP[requirement.item], `未知需求物品 ${requirement.item}`);
-        for (const itemId of Object.keys(option.loot ?? {})) assert.ok(ITEM_MAP[itemId], `未知战利品 ${itemId}`);
+      for (const connection of scene.connections) {
+        assert.ok(sceneIds.has(connection), `${scene.id} 连接到未知区域 ${connection}`);
+        const reverse = location.scenes.find((entry) => entry.id === connection)?.connections.includes(scene.id);
+        assert.equal(reverse, true, `${location.name} 的 ${scene.id} → ${connection} 不能原路返回`);
+      }
+      for (const target of scene.targets) {
+        assert.ok(target.options.length >= 2, `${location.name}/${target.name} 缺少不同解法`);
+        for (const option of target.options) {
+          assert.ok(option.minutes > 0);
+          assert.ok(option.stamina >= 0);
+          for (const requirement of option.requirements ?? []) if (requirement.item) assert.ok(ITEM_MAP[requirement.item], `未知需求物品 ${requirement.item}`);
+          for (const itemId of Object.keys(option.consumes ?? {})) assert.ok(ITEM_MAP[itemId], `未知消耗物品 ${itemId}`);
+          for (const itemId of Object.keys(option.loot ?? {})) assert.ok(ITEM_MAP[itemId], `未知战利品 ${itemId}`);
+          for (const itemId of Object.keys(option.effects?.inventory ?? {})) assert.ok(ITEM_MAP[itemId], `未知效果物品 ${itemId}`);
+        }
       }
     }
   }

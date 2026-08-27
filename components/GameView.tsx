@@ -13,8 +13,6 @@ import {
   availableStoreItems,
   endDay,
   eventOptionDisabledReason,
-  exploreLocation,
-  exploreSubstationControl,
   performPrepAction,
   performSurvivalAction,
   debtPaymentAmount,
@@ -23,7 +21,6 @@ import {
   repayDebt,
   repayDebtDisabledReason,
   resolveCurrentEvent,
-  substationControlAccess,
   useItem as consumeGameItem,
   visitStore,
   type PrepActionId,
@@ -57,7 +54,7 @@ const TUTORIAL = [
   { title: '每天一个明确愿望', body: '系统每天直接给出一件当天能完成的事。达成后夜间领取奖励；没有完成也不会扣除任何状态或点数。' },
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
   { title: '越早采购越稳妥', body: '第一天商店货最全，此后会逐日限购和缺货。每次出门还有随身负重上限；第七天闯商店可能受伤，也可能在无人收银时带回一包物资。' },
-  { title: '超市可以逐区深入', body: '封锁后进入河西生活超市，可在七个内部区域间移动并查看具体目标。不同工具、技能与情报会解锁不同处理方法；随时可以放弃目标并返回，系统会预留返程时间。' },
+  { title: '所有地点都能逐区深入', body: '封锁后六处地点都有各自的内部区域、现场目标和多种处理方法。工具、技能、情报与已发现路线会解锁不同解法；随时可以返回入口撤离，系统会预留返程时间。' },
   { title: '危险不是纯碰运气', body: '选项会先显示受险概率。系统再生成 1—100 的种子随机值：大于风险线就安全，低于风险线会受损，低于风险线一半会是严重后果。状态、装备、情报、难度和债务都会改变风险线。' },
 ];
 
@@ -271,34 +268,19 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
 
     if (mode === 'explore') {
       const locationChoices: ActionChoice[] = LOCATIONS.map((location) => {
-        const weatherPenalty = state.weather === '酸雨' ? 12 : state.weather === '暴雨' ? 9 : state.weather === '大雾' ? 7 : 0;
-        const adjusted = dangerRisk(state, location.risk + Math.min(18, (state.survivalDay - 1) * 2) + weatherPenalty).risk;
+        const deepLocation = DEEP_LOCATIONS[location.id];
+        const weatherPenalty = state.weather === '酸雨' ? 8 : state.weather === '暴雨' ? 6 : state.weather === '大雾' ? 4 : 0;
+        const approachRisk = deepLocation.approachRisk + Math.min(12, Math.max(0, state.survivalDay - 1)) + weatherPenalty;
         return {
           id: location.id,
-          label: location.id === 'riverside-market' ? `深入探索 · ${location.name}` : location.name,
-          hint: location.id === 'riverside-market'
-            ? `${location.district} · 往返各1小时 · 7个内部区域 · 现场行动分别计时`
-            : `${location.district} · 4小时 · ${state.visited[location.id] ? `已探索 ${state.visited[location.id]} 次` : '首次可发现线索'}`,
-          danger: location.id === 'riverside-market' ? `${dangerRisk(state, 14 + Math.min(12, Math.max(0, state.survivalDay - 1))).risk}% 路途受险` : `${adjusted}% 受险`,
-          disabledReason: location.id === 'riverside-market' ? deepStartDisabledReason(state, location.id) : timedReason(state, 240),
-          onSelect: () => run(location.id === 'riverside-market' ? beginDeepExplore(state, location.id) : exploreLocation(state, location.id)),
+          label: `深入探索 · ${location.name}`,
+          hint: `${location.district} · 去程 ${formatDuration(deepLocation.travelMinutes)} / 回程 ${formatDuration(deepLocation.returnMinutes)} · ${deepLocation.scenes.length} 个内部区域 · ${state.visited[location.id] ? `已撤离 ${state.visited[location.id]} 次` : '尚未进入'}`,
+          danger: `${dangerRisk(state, approachRisk).risk}% 路途受险`,
+          disabledReason: deepStartDisabledReason(state, location.id),
+          onSelect: () => run(beginDeepExplore(state, location.id)),
         };
       });
-      const controlAccess = substationControlAccess(state);
-      const controlWeatherPenalty = state.weather === '酸雨' ? 8 : state.weather === '暴雨' ? 6 : state.weather === '大雾' ? 4 : 0;
-      const controlChoice: ActionChoice = {
-        id: 'north-substation-control',
-        label: '支线 · 变电站控制层',
-        hint: controlAccess.method === 'key'
-          ? '3小时 · 铜钥匙进入（钥匙保留）· 样本证据与备用电力'
-          : controlAccess.method === 'route'
-            ? '3小时 · 从备用入口潜入 · 样本证据与备用电力'
-            : '3小时 · 隐藏区域 · 样本证据与备用电力',
-        danger: controlAccess.baseRisk !== undefined ? `${dangerRisk(state, controlAccess.baseRisk + controlWeatherPenalty).risk}% 受险` : undefined,
-        disabledReason: controlAccess.available ? timedReason(state, 180) : controlAccess.reason,
-        onSelect: () => run(exploreSubstationControl(state)),
-      };
-      return [...locationChoices, controlChoice, { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') }];
+      return [...locationChoices, { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') }];
     }
     if (mode === 'craft') {
       const furnitureChoice = (id: FurnitureActionId, label: string): ActionChoice => {

@@ -1,4 +1,5 @@
-import type { ExplorationSkillId } from '../types.ts';
+import type { EventEffect, ExplorationSkillId } from '../types.ts';
+import { ADDITIONAL_DEEP_LOCATIONS } from './deep-additional-locations.ts';
 
 export interface DeepOptionRequirement {
   item?: string;
@@ -6,6 +7,7 @@ export interface DeepOptionRequirement {
   skill?: ExplorationSkillId;
   minSkill?: number;
   minIntel?: number;
+  flag?: string;
 }
 
 export interface DeepTargetOption {
@@ -21,12 +23,14 @@ export interface DeepTargetOption {
   skillXp?: Partial<Record<ExplorationSkillId, number>>;
   danger?: number;
   addFlags?: string[];
+  effects?: EventEffect;
 }
 
 export interface DeepTarget {
   id: string;
   name: string;
   observation: string;
+  resolvedByFlag?: string;
   options: DeepTargetOption[];
 }
 
@@ -44,6 +48,7 @@ export interface DeepLocation {
   entrance: string;
   travelMinutes: number;
   returnMinutes: number;
+  approachRisk: number;
   scenes: DeepScene[];
 }
 
@@ -53,6 +58,7 @@ export const RIVERSIDE_MARKET: DeepLocation = {
   entrance: 'entrance',
   travelMinutes: 60,
   returnMinutes: 60,
+  approachRisk: 14,
   scenes: [
     {
       id: 'entrance', name: '入口与主通道', connections: ['checkout', 'food', 'household'],
@@ -144,7 +150,10 @@ export const RIVERSIDE_MARKET: DeepLocation = {
   ],
 };
 
-export const DEEP_LOCATIONS: Record<string, DeepLocation> = { [RIVERSIDE_MARKET.id]: RIVERSIDE_MARKET };
+export const DEEP_LOCATIONS: Record<string, DeepLocation> = {
+  [RIVERSIDE_MARKET.id]: RIVERSIDE_MARKET,
+  ...Object.fromEntries(ADDITIONAL_DEEP_LOCATIONS.map((location) => [location.id, location])),
+};
 
 export function deepScene(locationId: string, sceneId: string): DeepScene | undefined {
   return DEEP_LOCATIONS[locationId]?.scenes.find((scene) => scene.id === sceneId);

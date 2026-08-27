@@ -37,6 +37,7 @@ export function deepOptionDisabledReason(state: GameState, targetId: string, opt
   const option = target?.options.find((entry) => entry.id === optionId);
   if (!location || !scene || !target || !option) return '这个处理方式当前不可用';
   if (state.flags.includes(deepTargetFlag(location.id, target.id))) return '这里已经处理完毕';
+  if (target.resolvedByFlag && state.flags.includes(target.resolvedByFlag)) return '这里已经处理完毕';
   for (const requirement of option.requirements ?? []) {
     if (requirement.item && inventoryCount(state.inventory, requirement.item) < (requirement.quantity ?? 1)) {
       return `缺少 ${ITEM_MAP[requirement.item]?.name ?? requirement.item}${(requirement.quantity ?? 1) > 1 ? ` ×${requirement.quantity}` : ''}`;
@@ -45,6 +46,9 @@ export function deepOptionDisabledReason(state: GameState, targetId: string, opt
       return `${EXPLORATION_SKILL_LABELS[requirement.skill]}需要 ${requirement.minSkill} 级（当前 ${state.explorationSkills[requirement.skill].level}）`;
     }
     if (requirement.minIntel !== undefined && state.intel < requirement.minIntel) return `情报需要 ${requirement.minIntel}（当前 ${state.intel}）`;
+    if (requirement.flag && !state.flags.includes(requirement.flag)) {
+      return requirement.flag === 'substation-route' ? '尚未发现变电站备用入口路线' : '尚未发现所需路线或线索';
+    }
   }
   for (const [itemId, quantity] of Object.entries(option.consumes ?? {})) {
     if (inventoryCount(state.inventory, itemId) < quantity) return `缺少 ${ITEM_MAP[itemId]?.name ?? itemId} ×${quantity}`;
@@ -64,13 +68,13 @@ export function beginDeepExplore(state: GameState, locationId: string): EngineRe
   let next = structuredClone(state);
   next.feedback = [];
   const weatherPenalty = next.weather === '酸雨' ? 8 : next.weather === '暴雨' ? 6 : next.weather === '大雾' ? 4 : 0;
-  const baseRisk = 14 + Math.min(12, Math.max(0, next.survivalDay - 1)) + weatherPenalty;
+  const baseRisk = location.approachRisk + Math.min(12, Math.max(0, next.survivalDay - 1)) + weatherPenalty;
   const danger = rollDanger(next, baseRisk);
   next = danger.state;
-  if (danger.severity === 'minor') next = applyEffect(next, { stats: { stamina: -5, health: -2 } }, '前往超市');
-  if (danger.severity === 'major') next = applyEffect(next, { stats: { stamina: -9, health: -7 }, injury: '外伤' }, '前往超市');
+  if (danger.severity === 'minor') next = applyEffect(next, { stats: { stamina: -5, health: -2 } }, `前往${location.name}`);
+  if (danger.severity === 'major') next = applyEffect(next, { stats: { stamina: -9, health: -7 }, injury: '外伤' }, `前往${location.name}`);
   next.expedition = { locationId, sceneId: location.entrance, startedAtMinutes: state.clockMinutes, discoveredScenes: [location.entrance], gathered: [] };
-  next.logs.push(createLog(next, `进入 · ${location.name}`, `你沿背街抵达超市，把回程所需的 ${formatDuration(location.returnMinutes)} 单独留了出来。${describeDanger(danger)} 店内可以逐区移动；只要返回入口并撤离，就不会因为缺少某件工具卡在里面。`, danger.severity === 'major' ? 'bad' : 'story'));
+  next.logs.push(createLog(next, `进入 · ${location.name}`, `你抵达${location.name}，把回程所需的 ${formatDuration(location.returnMinutes)} 单独留了出来。${describeDanger(danger)} 这里共有 ${location.scenes.length} 个内部区域；只要返回入口并撤离，就不会因为缺少某件工具卡在里面。`, danger.severity === 'major' ? 'bad' : 'story'));
   return completeTimedAction(next, location.travelMinutes, 'survival:deep-travel');
 }
 
@@ -84,7 +88,7 @@ export function moveDeepExplore(state: GameState, sceneId: string): EngineResult
   const next = structuredClone(state);
   next.feedback = [];
   next.stats.stamina = Math.max(0, next.stats.stamina - 1);
-  next.feedback.push({ id: `${next.runId}-move-stamina-${next.logs.length}`, label: '体力', delta: -1, reason: '在店内移动' });
+  next.feedback.push({ id: `${next.runId}-move-stamina-${next.logs.length}`, label: '体力', delta: -1, reason: '地点内移动' });
   next.expedition!.sceneId = sceneId;
   if (!next.expedition!.discoveredScenes.includes(sceneId)) {
     next.expedition!.discoveredScenes.push(sceneId);
@@ -99,6 +103,7 @@ function collectLoot(state: GameState, loot: Record<string, number> | undefined)
   for (const [itemId, quantity] of Object.entries(loot ?? {})) {
     const item = ITEM_MAP[itemId];
     if (!item) continue;
+    if (item.story && inventoryCount(state.inventory, itemId) > 0) continue;
     let added = 0;
     for (let index = 0; index < quantity; index += 1) {
       if (!canAddWeight(state.inventory, item, 1, state.carryCapacity, ITEM_MAP)) break;
@@ -126,7 +131,13 @@ export function resolveDeepTarget(state: GameState, targetId: string, optionId: 
   let next = structuredClone(state);
   next.feedback = [];
   for (const [itemId, quantity] of Object.entries(option.consumes ?? {})) next.inventory = removeItem(next.inventory, itemId, quantity) ?? next.inventory;
-  next = applyEffect(next, { stats: { stamina: -option.stamina } }, target.name);
+  next = applyEffect(next, {
+    ...option.effects,
+    stats: {
+      ...(option.effects?.stats ?? {}),
+      stamina: (option.effects?.stats?.stamina ?? 0) - option.stamina,
+    },
+  }, target.name);
   let dangerText = '';
   let tone: 'story' | 'bad' = 'story';
   if (option.danger) {

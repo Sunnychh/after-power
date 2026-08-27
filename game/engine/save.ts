@@ -1,4 +1,5 @@
 import { createFurnitureState } from '../data/furniture.ts';
+import { DEEP_LOCATIONS } from '../data/deep-exploration.ts';
 import type { GameState, MetaState, Outcome, SettingsState, StorageLike } from '../types.ts';
 import { expireItems } from './inventory.ts';
 import { ensureAssignedDailyWish } from './daily.ts';
@@ -95,13 +96,18 @@ function removeStaleBatches(state: GameState): GameState {
     if (!progress || !Number.isFinite(progress.xp)) next.explorationSkills[skill] = { level: 0, xp: 0 };
     else next.explorationSkills[skill] = { xp: Math.max(0, progress.xp), level: Math.min(5, Math.floor(Math.max(0, progress.xp) / 3)) };
   }
-  if (next.expedition && (
-    next.expedition.locationId !== 'riverside-market'
-    || !['entrance', 'checkout', 'food', 'household', 'cold-storage', 'toilet', 'warehouse'].includes(next.expedition.sceneId)
-    || !Array.isArray(next.expedition.discoveredScenes)
-    || !Array.isArray(next.expedition.gathered)
-    || next.phase !== 'survival'
-  )) next.expedition = undefined;
+  if (next.expedition) {
+    const deepLocation = DEEP_LOCATIONS[next.expedition.locationId];
+    const sceneIds = new Set(deepLocation?.scenes.map((scene) => scene.id) ?? []);
+    if (
+      !deepLocation
+      || !sceneIds.has(next.expedition.sceneId)
+      || !Array.isArray(next.expedition.discoveredScenes)
+      || next.expedition.discoveredScenes.some((sceneId) => !sceneIds.has(sceneId))
+      || !Array.isArray(next.expedition.gathered)
+      || next.phase !== 'survival'
+    ) next.expedition = undefined;
+  }
   if (!Number.isFinite(next.isolationNights)) next.isolationNights = 0;
   if (!next.storePurchases || typeof next.storePurchases !== 'object') next.storePurchases = {};
   if (next.debt && (!Number.isFinite(next.debt.balance) || next.debt.balance <= 0)) next.debt = undefined;
