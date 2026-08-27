@@ -17,6 +17,7 @@ import {
   applyEffect,
   clamp,
   createLog,
+  describeDanger,
   hasFlag,
   rollDanger,
   unmetRequirementLabel,
@@ -78,12 +79,12 @@ export function resolveCurrentEvent(state: GameState, optionIndex: number): Resu
     next = danger.state;
     if (danger.severity === 'minor') {
       next = applyEffect(next, { stats: { stamina: -8, health: -3 } }, '危险判定');
-      dangerText = ` 危险判定 ${danger.roll}/${danger.risk}：擦伤撤回。`;
+      dangerText = ` ${describeDanger(danger)} 结果：擦伤撤回。`;
     } else if (danger.severity === 'major') {
       next = applyEffect(next, { stats: { stamina: -12, health: -12 }, injury: '外伤' }, '危险判定');
-      dangerText = ` 危险判定 ${danger.roll}/${danger.risk}：遭遇严重失误。`;
+      dangerText = ` ${describeDanger(danger)} 结果：遭遇严重失误。`;
     } else {
-      dangerText = ` 危险判定 ${danger.roll}/${danger.risk}：安全。`;
+      dangerText = ` ${describeDanger(danger)}`;
     }
   }
   next = applyEffect(next, option.effects, event.title);
@@ -116,7 +117,7 @@ function performLastDayShopping(state: GameState, store: StoreId): Result {
 
   if (outcomeRoll.value <= injuryChance) {
     next = applyEffect(next, { stats: { health: next.difficulty === 'hard' ? -14 : -9, stamina: -18, morale: -5 }, injury: outcomeRoll.value <= Math.ceil(injuryChance / 3) ? '外伤' : undefined }, '最后一天强行采购');
-    next.logs = [...next.logs, createLog(next, '高风险采购 · 空手返回', `店门口已经挤成一团。你在卷帘门落下前被推倒，判定 ${outcomeRoll.value}/${injuryChance}，只能护着空包回到避难所。`, 'bad')];
+    next.logs = [...next.logs, createLog(next, '高风险采购 · 空手返回', `店门口已经挤成一团。随机值 ${outcomeRoll.value} ≤ 受伤线 ${injuryChance}（受伤概率 ${injuryChance}%），你在卷帘门落下前被推倒，只能护着空包回到避难所。`, 'bad')];
     return completeTimedAction(next, 150, 'prep:risky-shopping');
   }
 
@@ -136,7 +137,7 @@ function performLastDayShopping(state: GameState, store: StoreId): Result {
   }
   next.stats.stamina = clamp(next.stats.stamina - 14);
   next.feedback = found.map((name, index) => ({ id: `${next.runId}-last-shop-${next.logs.length}-${index}`, label: name, delta: 1, reason: '无人看管的货架' }));
-  next.logs = [...next.logs, createLog(next, '高风险采购 · 无人收银', `收银台已经空了，警报和争吵声盖过一切。你没有付款，在 ${capacity}kg 随身负重内带回：${found.length ? found.join('、') : '没有能装下的物资'}。危险判定 ${outcomeRoll.value}/${injuryChance}，成功脱身。`, found.length ? 'good' : 'story')];
+  next.logs = [...next.logs, createLog(next, '高风险采购 · 无人收银', `收银台已经空了，警报和争吵声盖过一切。你没有付款，在 ${capacity}kg 随身负重内带回：${found.length ? found.join('、') : '没有能装下的物资'}。随机值 ${outcomeRoll.value} > 受伤线 ${injuryChance}（受伤概率 ${injuryChance}%），成功脱身。`, found.length ? 'good' : 'story')];
   return completeTimedAction(next, 150, 'prep:risky-shopping');
 }
 
@@ -334,10 +335,10 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     if (danger.severity === 'major') {
       next = applyEffect(next, { stats: { health: -14, stamina: -18 }, shelter: { power: -4 } }, title);
       addFlag(next, 'truth-attempt-failed');
-      body = `中继器过载，发送在 63% 处中断（${danger.roll}/${danger.risk}）。你仍能退回避难所，普通撤离没有被关闭。`;
+      body = `中继器过载，发送在 63% 处中断。${describeDanger(danger)} 你仍能退回避难所，普通撤离没有被关闭。`;
     } else {
       addFlag(next, 'truth-transmitted');
-      body = `校验完成。三个城外接收站先后回应（${danger.roll}/${danger.risk}）。这份数据已经不只存在于城里。`;
+      body = `校验完成。三个城外接收站先后回应。${describeDanger(danger)} 这份数据已经不只存在于城里。`;
     }
   }
 
@@ -382,12 +383,11 @@ export function exploreLocation(state: GameState, locationId: string): Result {
   if (danger.severity === 'major') next = applyEffect(next, { stats: { health: -13, morale: -5 }, injury: '外伤' }, '探索受伤');
   if (next.weather === '酸雨' && inventoryCount(next.inventory, 'raincoat') < 1) next = applyEffect(next, { stats: { health: -5 } }, '酸雨暴露');
   if (inventoryCount(next.inventory, 'masks') > 0 && location.risk >= 38) next.inventory = removeItem(next.inventory, 'masks', 1) ?? next.inventory;
-  const riskLabel = danger.risk < 30 ? '低' : danger.risk < 55 ? '中' : '高';
   next.feedback = found.map((name, index) => ({ id: `${next.runId}-loot-${next.logs.length}-${index}`, label: name, delta: 1, reason: location.name }));
   next.logs = [...next.logs, createLog(
     next,
     `探索 · ${location.name}`,
-    `${location.description} 判定 ${danger.roll}/${danger.risk}（${riskLabel}风险），${danger.severity === 'safe' ? '安全返回' : danger.severity === 'minor' ? '途中擦伤' : '遭遇危险并受伤'}。带回：${found.length ? found.join('、') : '没有能带走的物资'}。`,
+    `${location.description} ${describeDanger(danger)} 结果：${danger.severity === 'safe' ? '安全返回' : danger.severity === 'minor' ? '途中擦伤' : '遭遇危险并受伤'}。带回：${found.length ? found.join('、') : '没有能带走的物资'}。`,
     danger.severity === 'major' ? 'bad' : 'story',
   )];
   return completeTimedAction(next, 240, 'survival:explore');
@@ -444,7 +444,7 @@ export function exploreSubstationControl(state: GameState): Result {
   next.logs = [...next.logs, createLog(
     next,
     '支线 · 变电站控制层',
-    `${accessText} 判定 ${danger.roll}/${danger.risk}，${outcomeText}。冷藏柜的独立电源仍在工作，你带回了${found.join('、')}，并为避难所补充了 10 点备用电力。样本批次 C-17 可作为真相路线证据。`,
+    `${accessText} ${describeDanger(danger)} 结果：${outcomeText}。冷藏柜的独立电源仍在工作，你带回了${found.join('、')}，并为避难所补充了 10 点备用电力。样本批次 C-17 可作为真相路线证据。`,
     danger.severity === 'major' ? 'bad' : 'story',
   )];
   return completeTimedAction(next, 180, 'survival:explore');

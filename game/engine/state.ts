@@ -275,18 +275,57 @@ export function applyEffect(state: GameState, effect: EventEffect = {}, reason: 
   return next;
 }
 
-export function rollDanger(state: GameState, baseRisk: number): { state: GameState; roll: number; risk: number; severity: 'safe' | 'minor' | 'major' } {
+export interface DangerCalculation {
+  risk: number;
+  factors: Array<{ label: string; delta: number }>;
+}
+
+export interface DangerResult extends DangerCalculation {
+  state: GameState;
+  roll: number;
+  severity: 'safe' | 'minor' | 'major';
+}
+
+export function dangerRisk(state: GameState, baseRisk: number): DangerCalculation {
+  const factors: Array<{ label: string; delta: number }> = [{ label: '地点/行动基础', delta: baseRisk }];
+  const difficultyModifier = DIFFICULTY_MAP[state.difficulty].riskModifier;
+  if (difficultyModifier) factors.push({ label: `${DIFFICULTY_MAP[state.difficulty].name}难度`, delta: difficultyModifier });
+  if (state.stats.health < 40) factors.push({ label: '健康偏低', delta: 10 });
+  if (state.stats.morale < 35) factors.push({ label: '精神偏低', delta: 8 });
+  if (state.stats.stamina < 30) factors.push({ label: '体力偏低', delta: 8 });
+  const debtPenalty = state.debt && state.debt.balance > 0 ? LOAN_MAP[state.debt.tier].riskBonus + Math.min(8, state.debt.missedCollections * 2) : 0;
+  if (debtPenalty) factors.push({ label: '未结债务', delta: debtPenalty });
+  const gearBonus = inventoryCount(state.inventory, 'respirator') > 0 ? 8 : inventoryCount(state.inventory, 'masks') > 0 ? 4 : 0;
+  if (gearBonus) factors.push({ label: inventoryCount(state.inventory, 'respirator') > 0 ? '防毒面具' : '医用口罩', delta: -gearBonus });
+  if (hasFlag(state, 'ability:map')) factors.push({ label: '旧城地图', delta: -8 });
+  const intelBonus = Math.min(12, state.intel * 3);
+  if (intelBonus) factors.push({ label: '灾难情报', delta: -intelBonus });
+  return { risk: clamp(factors.reduce((sum, factor) => sum + factor.delta, 0), 5, 85), factors };
+}
+
+export function dangerFactorText(calculation: DangerCalculation): string {
+  const parts = calculation.factors.map((factor, index) => `${index === 0 ? '' : factor.delta >= 0 ? '+ ' : '- '}${factor.label} ${Math.abs(factor.delta)}`);
+  return `风险构成：${parts.join(' ')} = ${calculation.risk}%`;
+}
+
+export function describeDanger(result: Pick<DangerResult, 'roll' | 'risk' | 'severity' | 'factors'>): string {
+  const severeLine = Math.floor(result.risk / 2);
+  const comparison = result.severity === 'safe'
+    ? `随机值 ${result.roll} > 风险线 ${result.risk}，安全`
+    : result.severity === 'minor'
+      ? `随机值 ${result.roll} ≤ 风险线 ${result.risk}，触发轻微后果（严重线 ${severeLine}）`
+      : `随机值 ${result.roll} ≤ 严重线 ${severeLine}，触发严重后果`;
+  return `${comparison}。${dangerFactorText(result)}`;
+}
+
+export function rollDanger(state: GameState, baseRisk: number): DangerResult {
   const next = structuredClone(state);
-  const statusPenalty = (next.stats.health < 40 ? 10 : 0) + (next.stats.morale < 35 ? 8 : 0) + (next.stats.stamina < 30 ? 8 : 0);
-  const gearBonus = inventoryCount(next.inventory, 'respirator') > 0 ? 8 : inventoryCount(next.inventory, 'masks') > 0 ? 4 : 0;
-  const mapBonus = hasFlag(next, 'ability:map') ? 8 : 0;
-  const difficultyModifier = DIFFICULTY_MAP[next.difficulty].riskModifier;
-  const debtPenalty = next.debt && next.debt.balance > 0 ? LOAN_MAP[next.debt.tier].riskBonus + Math.min(8, next.debt.missedCollections * 2) : 0;
-  const risk = clamp(baseRisk + difficultyModifier + statusPenalty + debtPenalty - gearBonus - mapBonus - Math.min(12, next.intel * 3), 5, 85);
+  const calculation = dangerRisk(next, baseRisk);
+  const risk = calculation.risk;
   const rolled = randomInt(next.rngState, 1, 100);
   next.rngState = rolled.state;
   const severity = rolled.value > risk ? 'safe' : rolled.value > risk / 2 ? 'minor' : 'major';
-  return { state: next, roll: rolled.value, risk, severity };
+  return { state: next, roll: rolled.value, risk, severity, factors: calculation.factors };
 }
 
 export function weatherForDay(state: GameState, day: number): Weather {

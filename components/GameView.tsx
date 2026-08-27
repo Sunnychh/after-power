@@ -32,7 +32,7 @@ import { isNpcUnlocked } from '../game/engine/npcs.ts';
 import { debtRiskBonus } from '../game/engine/loan.ts';
 import { claimDailyReward, continueAfterMissedWish, dailyWishProgress } from '../game/engine/daily.ts';
 import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
-import { clamp } from '../game/engine/state.ts';
+import { dangerRisk } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
 import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
@@ -51,6 +51,7 @@ const TUTORIAL = [
   { title: '每天一个明确愿望', body: '系统每天直接给出一件当天能完成的事。达成后夜间领取奖励；没有完成也不会扣除任何状态或点数。' },
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
   { title: '越早采购越稳妥', body: '第一天商店货最全，此后会逐日限购和缺货。每次出门还有随身负重上限；第七天闯商店可能受伤，也可能在无人收银时带回一包物资。' },
+  { title: '危险不是纯碰运气', body: '选项会先显示受险概率。系统再生成 1—100 的种子随机值：大于风险线就安全，低于风险线会受损，低于风险线一半会是严重后果。状态、装备、情报、难度和债务都会改变风险线。' },
 ];
 
 function timedReason(state: GameState, minutes: number): string | null {
@@ -132,7 +133,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         label: option.label,
         hint: option.hint,
         disabledReason: eventOptionDisabledReason(state, index),
-        danger: option.danger ? option.danger < 25 ? '低风险' : option.danger < 50 ? '中风险' : '高风险' : undefined,
+        danger: option.danger ? `${dangerRisk(state, option.danger).risk}% 受险` : undefined,
         onSelect: () => run(resolveCurrentEvent(state, index)),
       }));
     }
@@ -147,7 +148,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           id,
           label: state.prepDay === 7 ? `高风险 · ${label}` : label,
           hint: state.prepDay === 7 ? `2小时30分 · ${hint} · 可能受伤，也可能免费带回残余物资` : `1小时30分 · ${hint}`,
-          danger: state.prepDay === 7 ? '高风险' : undefined,
+          danger: state.prepDay === 7 ? `${state.difficulty === 'easy' ? 10 : state.difficulty === 'hard' ? 26 : 18}% 受伤` : undefined,
           disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120),
           onSelect: () => {
             const result = visitStore(state, id);
@@ -172,7 +173,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           id: 'shops',
           label: state.prepDay === 7 ? '封锁前最后采购' : '前往商店采购',
           hint: state.prepDay === 7 ? '2小时30分 · 街面已失控：可能受伤，也可能免费带回残余物资' : `1小时30分 · ${prepSupplyMessage(state.prepDay)}`,
-          danger: state.prepDay === 7 ? '高风险' : undefined,
+          danger: state.prepDay === 7 ? `${state.difficulty === 'easy' ? 10 : state.difficulty === 'hard' ? 26 : 18}% 受伤` : undefined,
           disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120),
           onSelect: () => setMode('shops'),
         },
@@ -188,17 +189,19 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
 
     if (mode === 'explore') {
       const locationChoices: ActionChoice[] = LOCATIONS.map((location) => {
-        const adjusted = clamp(location.risk + difficultyConfig.riskModifier + debtRiskBonus(state) + (state.survivalDay - 1) * 2 - state.intel * 3 - (state.flags.includes('ability:map') ? 8 : 0), 5, 85);
+        const weatherPenalty = state.weather === '酸雨' ? 12 : state.weather === '暴雨' ? 9 : state.weather === '大雾' ? 7 : 0;
+        const adjusted = dangerRisk(state, location.risk + Math.min(18, (state.survivalDay - 1) * 2) + weatherPenalty).risk;
         return {
           id: location.id,
           label: location.name,
           hint: `${location.district} · 4小时 · ${state.visited[location.id] ? `已探索 ${state.visited[location.id]} 次` : '首次可发现线索'}`,
-          danger: adjusted < 30 ? '低风险' : adjusted < 55 ? '中风险' : '高风险',
+          danger: `${adjusted}% 受险`,
           disabledReason: timedReason(state, 240),
           onSelect: () => run(exploreLocation(state, location.id)),
         };
       });
       const controlAccess = substationControlAccess(state);
+      const controlWeatherPenalty = state.weather === '酸雨' ? 8 : state.weather === '暴雨' ? 6 : state.weather === '大雾' ? 4 : 0;
       const controlChoice: ActionChoice = {
         id: 'north-substation-control',
         label: '支线 · 变电站控制层',
@@ -207,7 +210,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           : controlAccess.method === 'route'
             ? '3小时 · 从备用入口潜入 · 样本证据与备用电力'
             : '3小时 · 隐藏区域 · 样本证据与备用电力',
-        danger: controlAccess.method === 'key' ? '低风险' : controlAccess.method === 'route' ? '高风险' : undefined,
+        danger: controlAccess.baseRisk !== undefined ? `${dangerRisk(state, controlAccess.baseRisk + controlWeatherPenalty).risk}% 受险` : undefined,
         disabledReason: controlAccess.available ? timedReason(state, 180) : controlAccess.reason,
         onSelect: () => run(exploreSubstationControl(state)),
       };
@@ -255,7 +258,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       { id: 'trade', label: state.debt ? '交易与偿还债务' : '与幸存者交易', hint: state.debt ? `交换物资，或处理 ¥${state.debt.balance} 未结贷款` : '用稀缺物资交换水或药品', disabledReason: timedReason(state, 30), onSelect: () => setMode('trade') },
       { id: 'explore', label: '外出探索', hint: `4小时 · 选择 6 个地点之一 · ${state.difficulty === 'easy' ? '简易额外战利品 +1' : '危险受状态影响'}`, disabledReason: timedReason(state, 240), onSelect: () => setMode('explore') },
       { id: 'generator', label: '启动备用电源', hint: '30分钟 · 燃料 3 → 电力 +9', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '未完成供电改造' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
-      ...(state.survivalDay >= truthDay && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') ? [{ id: 'truth', label: '搭建外联中继', hint: '3小时 · 每轮只有一次发送窗口；失败后仍可普通撤离', disabledReason: truthEndingReady(state) ? timedReason(state, 180) : `需要证据 3（${truthEvidenceCount(state)}）、盟友 2（${trustedNpcCount(state)}）与已解码广播`, danger: '中风险', onSelect: () => run(performSurvivalAction(state, 'truth')) }] : []),
+      ...(state.survivalDay >= truthDay && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') ? [{ id: 'truth', label: '搭建外联中继', hint: '3小时 · 每轮只有一次发送窗口；失败后仍可普通撤离', disabledReason: truthEndingReady(state) ? timedReason(state, 180) : `需要证据 3（${truthEvidenceCount(state)}）、盟友 2（${trustedNpcCount(state)}）与已解码广播`, danger: `${dangerRisk(state, 46).risk}% 受险`, onSelect: () => run(performSurvivalAction(state, 'truth')) }] : []),
       { id: 'end', label: '就寝并进行夜间结算', hint: `现在 ${formatClock(state.clockMinutes)} · 尚余 ${formatDuration(minutesRemaining(state))}`, onSelect: () => run(endDay(state)) },
     ];
   })();
@@ -400,6 +403,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <h2>未结债务 · ¥{state.debt.balance}</h2>
               <p>{LOAN_MAP[state.debt.tier].name}，封锁第 {state.debt.dueSurvivalDay} 天到期。当前危险判定 +{debtRiskBonus(state)}；已逾期催收 {state.debt.missedCollections} 次。</p>
               <dl className="daily-progress"><div><dt>最低还款</dt><dd>¥{Math.min(state.debt.balance, state.debt.minimumPayment)}</dd></div><div><dt>累计已还</dt><dd>¥{state.debt.totalRepaid}</dd></div></dl>
+            </section>
+          )}
+          {state.phase === 'survival' && (
+            <section className="risk-guide">
+              <span className="section-kicker">DANGER CHECK</span>
+              <h2>危险判定怎么读</h2>
+              <p>标签中的百分比就是当前受险概率。行动时生成 1—100 的种子随机值：<strong>大于风险线＝安全</strong>；落在风险线以内＝轻微后果；低于风险线一半＝严重后果。日志会列出基础风险及每个加减因素。</p>
             </section>
           )}
           <section>

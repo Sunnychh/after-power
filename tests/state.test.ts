@@ -6,7 +6,7 @@ import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { endDay, exploreLocation, exploreSubstationControl, performPrepAction, performSurvivalAction, substationControlAccess } from '../game/engine/actions.ts';
 import { claimDailyReward, continueAfterMissedWish } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
-import { applyEffect, createInitialState, selectEvent } from '../game/engine/state.ts';
+import { applyEffect, createInitialState, dangerFactorText, dangerRisk, describeDanger, rollDanger, selectEvent } from '../game/engine/state.ts';
 import { chooseEvacuation } from '../game/engine/outcomes.ts';
 import { ITEM_MAP } from '../game/data/items.ts';
 import { SURVIVAL_DAY_START, dayEndMinutes } from '../game/engine/time.ts';
@@ -31,6 +31,23 @@ test('核心状态变化截断在 0 到 100', () => {
   assert.equal(next.stats.hydration, 0);
   assert.equal(next.shelter.integrity, 100);
   assert.equal(next.shelter.power, 0);
+});
+
+test('危险概率由可追踪因素计算，日志明确说明比较规则', () => {
+  const state = createInitialState('risk-explained', [], 0, 'normal', false, 'bridge');
+  state.currentEventId = undefined;
+  state.stats.health = 35;
+  state.stats.stamina = 25;
+  state.intel = 2;
+  const calculation = dangerRisk(state, 40);
+  assert.equal(calculation.risk, 56); // 40 + 健康10 + 体力8 + 债务4 - 情报6
+  assert.match(dangerFactorText(calculation), /地点\/行动基础 40/);
+  assert.match(dangerFactorText(calculation), /未结债务 4/);
+  const result = rollDanger(state, 40);
+  const explanation = describeDanger(result);
+  assert.match(explanation, /随机值 \d+/);
+  assert.match(explanation, /风险线 56|严重线 28/);
+  assert.match(explanation, /风险构成/);
 });
 
 test('灾前剩余时间不足时不会推进时钟或扣钱', () => {
