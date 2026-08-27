@@ -25,6 +25,17 @@ function StatCell({ label, value }: { label: string; value: number }) {
   );
 }
 
+function BoredomCell({ value }: { value: number }) {
+  const level = value >= 70 ? 'danger' : value >= 40 ? 'warning' : 'normal';
+  return (
+    <div className={`stat-cell inverse ${level}`} aria-label={`饮食厌倦 ${value}/100；数值越低越好`} title="重复吃同一种食物会提高厌倦并削减精神；更换食物或食用不同料理可降低厌倦。">
+      <div className="stat-heading"><span>厌倦</span><b>{value}</b></div>
+      <span className="stat-track" aria-hidden="true"><i style={{ width: `${value}%` }} /></span>
+      {level !== 'normal' && <small>{level === 'danger' ? '很厌烦' : '重复'}</small>}
+    </div>
+  );
+}
+
 export function StatusBar({ state, savedAt, onOpenInventory, onOpenSettings, onRestart }: {
   state: GameState;
   savedAt: string;
@@ -68,6 +79,7 @@ export function StatusDock({ state }: { state: GameState }) {
       <div className="status-grid">
         {STATS.map(({ key, label }) => <StatCell key={key} label={label} value={state.stats[key]} />)}
         <StatCell label="完整度" value={state.shelter.integrity} />
+        <BoredomCell value={state.foodBoredom} />
         <div className="stat-cell resource-cell" aria-label={`电力 ${state.shelter.power}，${powerPolicy.name}，燃料 ${state.shelter.fuel}，愿望点 ${state.dailyPoints}，夜间配给${state.autoRations ? '自动' : '手动'}`}>
           <div className="stat-heading"><span>供能</span><b>{state.shelter.power}</b></div>
           <span className="resource-detail">电 {state.shelter.power} · {powerPolicy.name}（夜耗约 {expectedPower}{alarmCost ? '，含警戒' : ''}）· 燃 {state.shelter.fuel} · 愿望点 {state.dailyPoints} · 配给 {state.autoRations ? '自动' : '手动'}</span>

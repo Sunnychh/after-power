@@ -246,6 +246,8 @@ export interface GameState {
   broadcasts: number;
   cookingAttempts: number;
   cookingSkill: number;
+  foodBoredom: number;
+  recentMeals: string[];
   explorationSkills: ExplorationSkills;
   expedition?: ExpeditionState;
   isolationNights: number;

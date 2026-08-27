@@ -26,6 +26,7 @@ export const ITEMS: ItemDefinition[] = [
   { id: 'radio', name: '短波收音机', category: '工具', price: 62, weight: 0.75, description: '耗一节电池，接收封锁线外的声音。', store: 'hardware', tags: ['radio', 'intel', 'combo'], easyPlan: { tier: '必备', target: 1 } },
   { id: 'flashlight', name: '强光手电', category: '工具', price: 34, weight: 0.35, description: '夜间探索降低危险，需要电池。', store: 'hardware', tags: ['light', 'explore', 'combo'], easyPlan: { tier: '推荐', target: 1 } },
   { id: 'camp-stove', name: '便携炉头', category: '工具', price: 48, weight: 0.55, description: '配合燃料可制作热食和净水。', store: 'hardware', tags: ['cook', 'combo'] },
+  { id: 'fuel-generator', name: '静音燃油发电机', category: '能源', price: 136, weight: 8.6, description: '发电机本体。需先完成一级供电改造；每运行 30 分钟消耗 3 点燃料，补充 5 点电力。', store: 'hardware', tags: ['generator', 'power'], easyPlan: { tier: '推荐', target: 1 } },
   { id: 'batteries', name: '电池组', category: '能源', price: 22, weight: 0.24, description: '可直接供收音机使用一次，或并入备用回路补充 3 点电力。', store: 'hardware', usable: true, effects: { power: 3 }, tags: ['battery'], easyPlan: { tier: '必备', target: 3 } },
   { id: 'fuel-can', name: '密封燃料罐', category: '能源', price: 58, weight: 3.2, description: '含 6 点可用燃料，可让发电机短时运转两次。', store: 'fuel', usable: true, effects: { fuel: 6 }, tags: ['fuel'], easyPlan: { tier: '推荐', target: 1 } },
   { id: 'solar-charger', name: '折叠太阳能板', category: '能源', price: 118, weight: 1.9, description: '晴天可缓慢补充电力。', store: 'hardware', tags: ['power', 'solar'] },

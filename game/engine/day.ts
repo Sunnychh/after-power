@@ -6,6 +6,7 @@ import type { GameState, Inventory, ItemDefinition } from '../types.ts';
 import { createDailySettlement, dailyActionBlockedReason, recordDailyAction } from './daily.ts';
 import { determineOutcome, finishRun } from './outcomes.ts';
 import { expireItems, inventoryCount, removeItem } from './inventory.ts';
+import { applyFoodVariety } from './nutrition.ts';
 import { assessDebtNight } from './loan.ts';
 import { resolveHardSiegeWave } from './siege.ts';
 import { absoluteDay, addFlag, applyEffect, createLog, selectEvent, weatherForDay } from './state.ts';
@@ -26,13 +27,19 @@ function findRation(state: GameState, tag: 'food' | 'water'): ItemDefinition | u
     })[0];
 }
 
-function consumeRation(state: GameState, item: ItemDefinition, reason: string): { state: GameState; consumed: boolean } {
+function consumeRation(state: GameState, item: ItemDefinition, reason: string): { state: GameState; consumed: boolean; varietyText?: string } {
   const removed = removeItem(state.inventory, item.id, 1);
   if (!removed) return { state, consumed: false };
   let next = { ...structuredClone(state), inventory: removed };
   next = applyEffect(next, { stats: item.effects }, reason);
+  let varietyText: string | undefined;
+  if (item.tags?.includes('food')) {
+    const variety = applyFoodVariety(next, item);
+    next = variety.state;
+    varietyText = `${variety.message} 饮食厌倦 ${next.foodBoredom}/100。`;
+  }
   next.feedback.push({ id: `${next.runId}-ration-${next.logs.length}-${item.id}`, label: item.name, delta: -1, reason });
-  return { state: next, consumed: true };
+  return { state: next, consumed: true, varietyText };
 }
 
 export function extendColdStorage(inventory: Inventory, currentDay: number): { inventory: Inventory; preserved: number } {
@@ -132,11 +139,13 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   const moraleDrain = pressure.moraleDrain;
   next = applyEffect(next, { stats: { satiety: -foodDrain, hydration: -waterDrain, stamina: staminaGain, morale: -moraleDrain } }, '夜间基础消耗');
   const consumed: string[] = [];
+  const varietyNotes: string[] = [];
   const food = next.autoRations && next.stats.satiety < 60 ? findRation(next, 'food') : undefined;
   if (food) {
     const ration = consumeRation(next, food, '夜间配给');
     next = ration.state;
     if (ration.consumed) consumed.push(food.name);
+    if (ration.varietyText) varietyNotes.push(ration.varietyText);
   }
   const water = next.autoRations && next.stats.hydration < 60 ? findRation(next, 'water') : undefined;
   if (next.autoRations && next.stats.hydration < 60 && water) {
@@ -215,7 +224,7 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   next.logs = [...next.logs, createLog(
     next,
     `${next.weather} · 夜间结算`,
-    `${pressure.name}：饱腹 -${foodDrain}，水分 -${waterDrain}，睡眠体力 +${staminaGain}，精神 -${moraleDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}供电策略：${policy.name}，电力 ${powerBefore} → ${next.shelter.power}。${powerText}${fridgeText}`,
+    `${pressure.name}：饱腹 -${foodDrain}，水分 -${waterDrain}，睡眠体力 +${staminaGain}，精神 -${moraleDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}${varietyNotes.join(' ')}供电策略：${policy.name}，电力 ${powerBefore} → ${next.shelter.power}。${powerText}${fridgeText}`,
     next.stats.health < 35 ? 'bad' : 'system',
   )];
 

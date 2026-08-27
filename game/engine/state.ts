@@ -118,6 +118,8 @@ export function createInitialState(
     broadcasts: 0,
     cookingAttempts: 0,
     cookingSkill: 0,
+    foodBoredom: 0,
+    recentMeals: [],
     explorationSkills: {
       lockpicking: { level: 0, xp: 0 },
       toolUse: { level: 0, xp: 0 },
@@ -225,7 +227,7 @@ export function selectEvent(state: GameState): GameEvent | undefined {
 const FEEDBACK_NAMES: Record<string, string> = {
   satiety: '饱腹', hydration: '水分', health: '健康', morale: '精神', stamina: '体力',
   integrity: '完整度', water: '储水', power: '电力', fuel: '燃料', reinforcement: '加固',
-  storage: '仓储', generator: '供电等级', money: '金钱', intel: '情报',
+  storage: '仓储', generator: '供电等级', money: '金钱', intel: '情报', foodBoredom: '饮食厌倦',
 };
 
 function pushFeedback(state: GameState, key: string, delta: number, reason: string): void {

@@ -42,19 +42,22 @@ export function ActionPanel({ title, subtitle, choices, shortcuts }: {
       <div className="choice-grid">
         {choices.slice(0, 9).map((choice, index) => {
           const disabled = Boolean(choice.disabledReason);
+          const fullText = `${choice.label}｜${choice.disabledReason ?? choice.hint}${choice.danger ? `｜${choice.danger}` : ''}`;
           return (
             <button
               key={choice.id}
               type="button"
               className={`choice-button ${disabled ? 'disabled' : ''}`}
               aria-disabled={disabled}
+              aria-label={fullText}
+              title={fullText}
               data-choice={index + 1}
               onClick={() => !disabled && choice.onSelect()}
             >
               <kbd>{index + 1}</kbd>
               <span className="choice-copy">
-                <strong>{choice.label}</strong>
-                <small>{choice.disabledReason ?? choice.hint}</small>
+                <strong title={choice.label}>{choice.label}</strong>
+                <small title={choice.disabledReason ?? choice.hint}>{choice.disabledReason ?? choice.hint}</small>
               </span>
               {choice.danger && <em className="danger-tag">{choice.danger}</em>}
             </button>

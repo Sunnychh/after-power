@@ -1,5 +1,6 @@
 import { createFurnitureState } from '../data/furniture.ts';
 import { DEEP_LOCATIONS } from '../data/deep-exploration.ts';
+import { ITEM_MAP } from '../data/items.ts';
 import type { GameState, MetaState, Outcome, SettingsState, StorageLike } from '../types.ts';
 import { expireItems } from './inventory.ts';
 import { ensureAssignedDailyWish } from './daily.ts';
@@ -88,6 +89,10 @@ function removeStaleBatches(state: GameState): GameState {
   next.shelter.generator = Math.min(3, Math.max(0, Number.isFinite(next.shelter.generator) ? next.shelter.generator : 0));
   if (!Number.isFinite(next.cookingAttempts)) next.cookingAttempts = 0;
   if (!Number.isFinite(next.cookingSkill)) next.cookingSkill = Math.min(5, Math.floor(next.cookingAttempts / 3));
+  if (!Number.isFinite(next.foodBoredom)) next.foodBoredom = 0;
+  next.foodBoredom = Math.min(100, Math.max(0, next.foodBoredom));
+  if (!Array.isArray(next.recentMeals)) next.recentMeals = [];
+  next.recentMeals = next.recentMeals.filter((itemId) => typeof itemId === 'string' && Boolean(ITEM_MAP[itemId])).slice(-6);
   if (!next.explorationSkills || typeof next.explorationSkills !== 'object') {
     next.explorationSkills = { lockpicking: { level: 0, xp: 0 }, toolUse: { level: 0, xp: 0 }, search: { level: 0, xp: 0 } };
   }

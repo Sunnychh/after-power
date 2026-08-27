@@ -374,7 +374,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
     }
     if (mode === 'power') {
       return [
-        { id: 'generator', label: '启动备用电源', hint: '30分钟 · 燃料 3 → 电力 +5', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '灾前未完成供电改造' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
+        { id: 'generator', label: '启动燃油发电机', hint: '30分钟 · 需要发电机本体与供电改造 · 燃料 -3 · 电力 +5', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '灾前未完成一级供电改造' : inventoryCount(state.inventory, 'fuel-generator') < 1 ? '缺少发电机本体（灾前五金店购买）' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
         ...POWER_POLICIES.map((policy) => {
           const policyNights = policy.expectedPower === 0 ? null : Math.floor(state.shelter.power / policy.expectedPower);
           return {
@@ -454,7 +454,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         <section className="narrative-column" aria-label="当日叙事与历史日志">
           {state.feedback.length > 0 && (
             <div className="feedback-strip" aria-live="polite">
-              {state.feedback.slice(-6).map((item) => <span key={item.id} className={item.label === '时间' ? 'time' : item.delta < 0 ? 'negative' : 'positive'}>{item.label} {item.label === '时间' ? `+${formatDuration(item.delta)}` : `${item.delta > 0 ? '+' : ''}${item.delta}`}<small>{item.reason}</small></span>)}
+              {state.feedback.slice(-6).map((item) => <span key={item.id} className={item.label === '时间' ? 'time' : item.delta < 0 || (item.label === '饮食厌倦' && item.delta > 0) ? 'negative' : 'positive'}>{item.label} {item.label === '时间' ? `+${formatDuration(item.delta)}` : `${item.delta > 0 ? '+' : ''}${item.delta}`}<small>{item.reason}</small></span>)}
             </div>
           )}
 
@@ -683,7 +683,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               const easyPlan = state.difficulty === 'easy' ? item.easyPlan : undefined;
               const planComplete = Boolean(easyPlan && owned >= easyPlan.target);
               return (
-                <article key={item.id}>
+                <article key={item.id} title={`${item.name}：${item.description}`}>
                   <div className="store-item-head"><strong>{item.name}</strong><b>¥{item.price}</b></div>
                   <div className="store-tags">
                     <span className={`category-pill category-${item.category}`}>{item.category}</span>

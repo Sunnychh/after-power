@@ -5,6 +5,7 @@ import { LOCATION_MAP } from '../data/world.ts';
 import { makeshiftRepairAmount, workIncome } from '../data/pressure.ts';
 import type { EventEffect, GameState, ItemDefinition, StoreId } from '../types.ts';
 import { addItem, canAddWeight, inventoryCount, inventoryWeight, removeItem } from './inventory.ts';
+import { applyFoodVariety } from './nutrition.ts';
 import { determineOutcome, finishRun, truthEndingReady } from './outcomes.ts';
 import { randomInt, seededPick } from './rng.ts';
 import { shoppingCarryCapacity, shoppingCarryRemaining, storePurchaseKey, storeStock } from './store.ts';
@@ -350,9 +351,10 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     body = `你在噪声里记下第 ${next.broadcasts} 段有效讯息。${newContact ? `${newContact.name}报出身份与固定联络时段，幸存者档案已解锁。${hasFlag(next, 'prep-neighbor-contact') ? '对方认出了你灾前留下的社区频段，初始信任 +8。' : ''}` : '已知呼号重复确认了道路与封锁信息。'}${duration > 60 ? ' 无电时的手摇发电多花了一小时。' : ''}`;
   } else if (action === 'generator') {
     if (next.shelter.generator < 1) return { state, ok: false, message: '灾前没有完成备用供电改造。' };
+    if (inventoryCount(next.inventory, 'fuel-generator') < 1) return { state, ok: false, message: '缺少静音燃油发电机本体；请在灾前五金店购买。' };
     if (next.shelter.fuel < 3) return { state, ok: false, message: '燃料不足 3。' };
-    title = '启动备用电源'; body = '发电机在阳台上低声运转，你只开了足够充电的一小段时间。';
-    next = applyEffect(next, { shelter: { fuel: -3, power: 5 }, stats: { morale: 2 } }, title);
+    title = '启动燃油发电机'; body = '你把发电机推到通风的生活阳台，接入改造回路。它运转三十分钟，油量表下降一格：燃料 -3，电力 +5。';
+    next = applyEffect(next, { shelter: { fuel: -3, power: 5 } }, title);
   } else if (action === 'purify') {
     if (inventoryCount(next.inventory, 'purifier-tablet') < 1 || inventoryCount(next.inventory, 'filter-cloth') < 1 || next.shelter.water < 6) {
       return { state, ok: false, message: '需要净水片、滤布与 6 单位储水。' };
@@ -520,10 +522,16 @@ export function useItem(state: GameState, itemId: string): Result {
       integrity: item.effects?.integrity,
     },
   }, `使用${item.name}`);
+  let varietyText = '';
+  if (item.tags?.includes('food')) {
+    const variety = applyFoodVariety(next, item);
+    next = variety.state;
+    varietyText = ` ${variety.message} 当前饮食厌倦 ${next.foodBoredom}/100。`;
+  }
   if (item.tags?.includes('wound')) next.injuries = next.injuries.filter((injury) => injury !== '外伤');
   if (item.tags?.includes('infection')) next.injuries = next.injuries.filter((injury) => injury !== '感染迹象');
   next.feedback.push({ id: `${next.runId}-use-${next.logs.length}`, label: item.name, delta: -1, reason: '使用' });
-  next.logs = [...next.logs, createLog(next, `使用 ${item.name}`, `${item.description} 数值变化已记录。`, 'good')];
+  next.logs = [...next.logs, createLog(next, `使用 ${item.name}`, `${item.description} 数值变化已记录。${varietyText}`, next.foodBoredom >= 60 ? 'bad' : 'good')];
   next = recordDailyAction(next, `use:${item.id}`);
   return { state: finalize(next), ok: true };
 }

@@ -10,6 +10,7 @@ import type { GameState } from '../game/types.ts';
 import { POWER_POLICY_MAP } from '../game/data/power.ts';
 import { projectedPowerNights } from '../game/engine/power.ts';
 import { siegeMitigation } from '../game/engine/siege.ts';
+import { foodVarietyPreview } from '../game/engine/nutrition.ts';
 
 export function InventoryPanel({ state, open, onClose, onUse }: {
   state: GameState;
@@ -50,14 +51,16 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
               const batches = [...(state.inventory[item.id] ?? [])]
                 .sort((a, b) => (a.expiresOn ?? Infinity) - (b.expiresOn ?? Infinity) || a.acquiredOn - b.acquiredOn);
               const effects = formatItemEffects(item);
+              const varietyPreview = foodVarietyPreview(state, item);
               return (
                 <article className="item-row" key={item.id}>
                   <div className="item-main">
                     <div>
-                      <strong>{item.name} <em>×{inventoryCount(state.inventory, item.id)}</em></strong>
+                      <strong title={`${item.name} ×${inventoryCount(state.inventory, item.id)}`}>{item.name} <em>×{inventoryCount(state.inventory, item.id)}</em></strong>
                       <span className={`category-pill category-${item.category}`}>{item.category}</span>
                       {effects.length > 0 && <span className="effect-list">{effects.map((effect) => <i key={effect}>{effect}</i>)}</span>}
-                      <span className="item-description">{item.description}</span>
+                      <span className="item-description" title={item.description}>{item.description}</span>
+                      {varietyPreview && <span className={`variety-preview ${state.recentMeals.at(-1) === item.id ? 'repeat' : ''}`} title={varietyPreview}>饮食：{varietyPreview}</span>}
                       <span>{item.weight}kg / 件</span>
                       <span className="expiry-batches" aria-label={`${item.name}保存期限`}>
                         {item.perishableDays ? batches.map((batch, index) => {
@@ -89,9 +92,12 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             <div><dt>备用电力</dt><dd>{state.shelter.power} 单位</dd></div>
             <div><dt>燃料储备</dt><dd>{state.shelter.fuel} 单位</dd></div>
             <div><dt>供电改造</dt><dd>等级 {state.shelter.generator}</dd></div>
+            <div><dt>燃油发电机</dt><dd>{inventoryCount(state.inventory, 'fuel-generator') > 0 ? '已购置 · 3 燃料 / 5 电力' : '未购置 · 无法燃油发电'}</dd></div>
             <div><dt>夜间负载</dt><dd>{powerPolicy.name} · 约 {powerPolicy.expectedPower + alarmCost} 电/夜{alarmCost ? '（含警戒）' : ''}</dd></div>
             <div><dt>预计续航</dt><dd>{powerNights === null ? '已关闭供电' : `约 ${powerNights} 夜`}</dd></div>
             <div><dt>料理技能</dt><dd>{state.cookingSkill} / 5 级 · 尝试 {state.cookingAttempts} 次</dd></div>
+            <div><dt>饮食厌倦</dt><dd>{state.foodBoredom} / 100 · 料理与换口味可降低</dd></div>
+            <div><dt>最近进食</dt><dd title={state.recentMeals.map((id) => ITEM_MAP[id]?.name ?? id).join(' → ') || '尚无记录'}>{state.recentMeals.length ? state.recentMeals.slice(-3).map((id) => ITEM_MAP[id]?.name ?? id).join(' → ') : '尚无记录'}</dd></div>
           </dl>
           <section className="furniture-section" aria-labelledby="furniture-title">
             <div className="furniture-heading"><span className="section-kicker">BUILT-IN FURNITURE</span><h2 id="furniture-title">自带家具</h2></div>

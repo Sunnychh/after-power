@@ -28,11 +28,15 @@ test('旧存档缺少供电策略或含旧式高等级时会安全折算', () =>
   state.shelter.power = 31;
   const legacyShape = structuredClone(state) as unknown as Record<string, unknown>;
   delete legacyShape.powerPolicy;
+  delete legacyShape.foodBoredom;
+  delete legacyShape.recentMeals;
   storage.setItem(GAME_SAVE_KEY, JSON.stringify(legacyShape));
   const restored = loadGame(storage)!;
   assert.equal(restored.powerPolicy, 'balanced');
   assert.equal(restored.shelter.generator, 3);
   assert.equal(restored.shelter.power, 31);
+  assert.equal(restored.foodBoredom, 0);
+  assert.deepEqual(restored.recentMeals, []);
 });
 
 test('存档可恢复贷款余额、还款与催收进度', () => {
