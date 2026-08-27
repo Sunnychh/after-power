@@ -1,0 +1,164 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { createInitialState } from '../game/engine/state.ts';
+import { awardOutcome } from '../game/engine/outcomes.ts';
+import { clearGame, DEFAULT_SETTINGS, loadGame, loadMeta, loadSettings, saveGame, saveMeta, saveSettings } from '../game/engine/save.ts';
+import type { AbilityId, DifficultyId, GameState, MetaState, SettingsState } from '../game/types.ts';
+import { GameView } from './GameView.tsx';
+import { Modal } from './Modal.tsx';
+import { TitleScreen } from './TitleScreen.tsx';
+
+function timeLabel(): string {
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+}
+
+function nextSeedLabel(): string {
+  const values = new Uint32Array(1);
+  window.crypto.getRandomValues(values);
+  return `AFTERLIGHT-${values[0].toString(36).toUpperCase().padStart(6, '0').slice(-6)}`;
+}
+
+export default function GameApp() {
+  const [ready, setReady] = useState(false);
+  const [screen, setScreen] = useState<'title' | 'game'>('title');
+  const [state, setState] = useState<GameState | null>(null);
+  const [saved, setSaved] = useState<GameState | null>(null);
+  const [meta, setMeta] = useState<MetaState>({ version: 1, memory: 0, runs: 0, unlocked: [], endings: [], awardedRuns: [] });
+  const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
+  const [seed, setSeed] = useState('AFTERLIGHT-001');
+  const [difficulty, setDifficulty] = useState<DifficultyId>('easy');
+  const [savedAt, setSavedAt] = useState('--:--');
+  const [notice, setNotice] = useState<string | null>(null);
+  const [modal, setModal] = useState<'guide' | 'settings' | 'restart' | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const loaded = loadGame(window.localStorage);
+      setSaved(loaded);
+      setState(loaded);
+      setMeta(loadMeta(window.localStorage));
+      setSettings(loadSettings(window.localStorage));
+      setReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 2800);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  const commit = (next: GameState) => {
+    let nextMeta = meta;
+    if (next.phase === 'ended' && next.outcome && !meta.awardedRuns.includes(next.runId)) {
+      nextMeta = awardOutcome(meta, next);
+      setMeta(nextMeta);
+      saveMeta(window.localStorage, nextMeta);
+    }
+    setState(next);
+    setSaved(next);
+    saveGame(window.localStorage, next);
+    setSavedAt(timeLabel());
+  };
+
+  const handleResult = (result: { state: GameState; ok: boolean; message?: string }): boolean => {
+    if (!result.ok) {
+      setNotice(result.message ?? '这个行动现在无法执行。');
+      return false;
+    }
+    commit(result.state);
+    return true;
+  };
+
+  const startFresh = () => {
+    const next = createInitialState(seed.trim() || 'AFTERLIGHT-001', meta.unlocked, meta.runs, difficulty);
+    commit(next);
+    setScreen('game');
+    setModal(null);
+  };
+
+  const startRequested = () => {
+    if (saved && saved.phase !== 'ended') setModal('restart');
+    else startFresh();
+  };
+
+  const updateSettings = (patch: Partial<SettingsState>) => {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    saveSettings(window.localStorage, next);
+  };
+
+  const unlock = (ability: AbilityId, cost: number) => {
+    if (meta.unlocked.includes(ability) || meta.memory < cost) return;
+    const next = { ...meta, memory: meta.memory - cost, unlocked: [...meta.unlocked, ability] };
+    setMeta(next);
+    saveMeta(window.localStorage, next);
+  };
+
+  if (!ready) return <main className="loading-screen"><span>正在恢复本地记录</span><i /></main>;
+
+  return (
+    <div className={`app-root font-${settings.fontScale} ${settings.reducedMotion ? 'reduce-motion' : ''} ${settings.highContrast ? 'high-contrast' : ''}`}>
+      {screen === 'title' ? (
+        <TitleScreen
+          hasSave={Boolean(saved)}
+          seed={seed}
+          difficulty={difficulty}
+          meta={meta}
+          onSeedChange={setSeed}
+          onDifficultyChange={setDifficulty}
+          onStart={startRequested}
+          onContinue={() => { if (saved) { setState(saved); setScreen('game'); } }}
+          onGuide={() => setModal('guide')}
+          onSettings={() => setModal('settings')}
+          onUnlock={unlock}
+        />
+      ) : state ? (
+        <GameView
+          state={state}
+          settings={settings}
+          savedAt={savedAt}
+          onResult={handleResult}
+          onCommit={commit}
+          onSettings={() => setModal('settings')}
+          onRestart={() => setModal('restart')}
+          onReturnTitle={() => setScreen('title')}
+          onNextRound={() => { setSeed(nextSeedLabel()); setScreen('title'); }}
+        />
+      ) : null}
+
+      {notice && <div className="notice-toast" role="status">{notice}</div>}
+
+      {modal === 'guide' && (
+        <Modal title="如何在停电以后活下去" onClose={() => setModal(null)} footer={<button className="primary-inline" onClick={() => setModal(null)} type="button">明白了</button>}>
+          <div className="guide-grid">
+            <section><b>01</b><h3>先选难度</h3><p>简易难度物资更多、危险更低且第 10 夜即可撤离；标准与艰难保留更完整的生存压力。</p></section>
+            <section><b>02</b><h3>时间与休息</h3><p>行动会推进页面中的游戏时钟，到达日终自动结算。白天休息两小时也能恢复体力，不再受固定行动点限制。</p></section>
+            <section><b>03</b><h3>物资与家具</h3><p>物资会列明分类和状态点数。冰箱、燃气炉、微波炉与电火锅属于自带家具，可保鲜或制作热食。</p></section>
+            <section><b>04</b><h3>愿望与结局</h3><p>每天先选择愿望和时限，夜间用愿望点挑即时奖励。最后一天由你选择普通撤离或已建立的证据路线。</p></section>
+          </div>
+        </Modal>
+      )}
+
+      {modal === 'settings' && (
+        <Modal title="阅读与操作设置" onClose={() => setModal(null)} footer={<button className="primary-inline" onClick={() => setModal(null)} type="button">保存并关闭</button>}>
+          <div className="settings-list">
+            <label><span><strong>数字键快捷操作</strong><small>按 1—9 选择底部对应选项</small></span><input type="checkbox" checked={settings.shortcuts} onChange={(event) => updateSettings({ shortcuts: event.target.checked })} /></label>
+            <label><span><strong>减少动画</strong><small>关闭闪烁、过渡和脉冲效果</small></span><input type="checkbox" checked={settings.reducedMotion} onChange={(event) => updateSettings({ reducedMotion: event.target.checked })} /></label>
+            <label><span><strong>高对比度</strong><small>加强边界与文字对比</small></span><input type="checkbox" checked={settings.highContrast} onChange={(event) => updateSettings({ highContrast: event.target.checked })} /></label>
+            <label><span><strong>显示新手提示</strong><small>新开一轮时显示四条简短提示</small></span><input type="checkbox" checked={settings.tutorial} onChange={(event) => updateSettings({ tutorial: event.target.checked })} /></label>
+            <label className="select-setting"><span><strong>正文字号</strong><small>只影响游戏正文与记录</small></span><select value={settings.fontScale} onChange={(event) => updateSettings({ fontScale: event.target.value as SettingsState['fontScale'] })}><option value="small">紧凑</option><option value="normal">标准</option><option value="large">较大</option></select></label>
+          </div>
+        </Modal>
+      )}
+
+      {modal === 'restart' && (
+        <Modal title="确认开始新一轮？" onClose={() => setModal(null)} footer={<><button type="button" onClick={() => setModal(null)}>保留当前进度</button><button className="danger-inline" type="button" onClick={() => { clearGame(window.localStorage); setSaved(null); startFresh(); }}>放弃并重新开始</button></>}>
+          <p className="confirm-copy">当前本轮进度会被覆盖；累计记忆、永久能力和已见结局会保留。这个操作无法撤销。</p>
+        </Modal>
+      )}
+    </div>
+  );
+}
