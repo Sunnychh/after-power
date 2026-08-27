@@ -114,6 +114,7 @@ export function createInitialState(
     broadcasts: 0,
     cookingAttempts: 0,
     cookingSkill: 0,
+    isolationNights: 0,
     storePurchases: {},
     relationships: Object.fromEntries(NPCS.map((npc) => [npc.id, 0])),
     injuries: [],

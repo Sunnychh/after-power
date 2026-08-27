@@ -221,6 +221,7 @@ export interface GameState {
   broadcasts: number;
   cookingAttempts: number;
   cookingSkill: number;
+  isolationNights: number;
   storePurchases: Record<string, number>;
   shoppingTrip?: ShoppingTrip;
   relationships: Record<string, number>;

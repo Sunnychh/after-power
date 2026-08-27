@@ -62,3 +62,28 @@ test('相同大类结局会根据关键经历产生不同文案变体', () => {
   assert.notEqual(soloEnding?.variantId, groupEnding?.variantId);
   assert.notEqual(soloEnding?.text, groupEnding?.text);
 });
+
+test('死亡会根据孤立、尸潮和天气形成不同终局', () => {
+  const isolated = evacuationState();
+  isolated.isolationNights = 3;
+  assert.equal(determineOutcome(isolated)?.variantId, 'death-isolation');
+
+  const horde = evacuationState();
+  horde.survivalDay = 8;
+  horde.shelter.integrity = 0;
+  assert.equal(determineOutcome(horde)?.variantId, 'death-horde');
+
+  const cold = evacuationState();
+  cold.stats.health = 0;
+  cold.weather = '寒潮';
+  cold.shelter.fuel = 0;
+  assert.equal(determineOutcome(cold)?.variantId, 'death-cold');
+});
+
+test('玩家可以主动放弃撤离并进入留守者结局', () => {
+  const state = evacuationState();
+  const result = chooseEvacuation(state, 'remain');
+  assert.equal(result.ok, true);
+  assert.equal(result.state.outcome?.variantId, 'survivor-caretaker');
+  assert.ok(result.state.outcome?.keyChoices.includes('留守街区'));
+});

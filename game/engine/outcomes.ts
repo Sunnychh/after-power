@@ -27,6 +27,20 @@ export function truthEndingReady(state: GameState): boolean {
 function deathOutcome(state: GameState): Outcome {
   const memoryEarned = 1 + Math.floor(state.survivalDay / 7);
   if (state.shelter.integrity <= 0) {
+    if (state.survivalDay === 8) {
+      return {
+        id: 'death', variantId: 'death-horde', title: '长街的脚步越过了门',
+        text: '第八夜的撞击没有停下。最后一根支撑木条折断时，楼道里已经分不清门板、脚步和呼喊的声音。你守住了许多夜，却没能守住这一夜。',
+        memoryEarned, keyChoices: ['尸潮之夜避难所失守', `加固等级 ${state.shelter.reinforcement}`],
+      };
+    }
+    if (state.weather === '暴雨' || state.weather === '酸雨') {
+      return {
+        id: 'death', variantId: 'death-weather-collapse', title: '雨水从最后一道裂缝灌入',
+        text: `${state.weather}持续破坏墙体和线路。承重处彻底开裂后，这间屋子不再是一座避难所，而成了把你困在里面的废墟。`,
+        memoryEarned, keyChoices: [`${state.weather}持续侵蚀`, '避难所完整度归零'],
+      };
+    }
     return {
       id: 'death', variantId: 'death-shelter', title: '房门之后再无灯光',
       text: '最后一道门没能撑住。城市的声音越过门框，吞没了这间被你守了许多天的屋子。',
@@ -47,15 +61,50 @@ function deathOutcome(state: GameState): Outcome {
       memoryEarned, keyChoices: ['饱腹归零'],
     };
   }
-  if (state.injuries.includes('感染迹象') || state.injuries.includes('外伤')) {
+  if (state.isolationNights >= 3) {
+    return {
+      id: 'death', variantId: 'death-isolation', title: '最后一次广播没有发出',
+      text: '连续三夜，没有一个频段回应，也没有一扇门在敲击后打开。你逐渐停止记录日期，随后不再起身检查水和食物。避难所里仍有物资，却再没有人去使用它们。',
+      memoryEarned, keyChoices: ['连续三夜处于孤立崩溃', '没有建立任何有效联络'],
+    };
+  }
+  if (state.injuries.includes('感染迹象')) {
+    return {
+      id: 'death', variantId: 'death-infection', title: '体温表停在最后一次读数',
+      text: '感染迹象从一处红肿扩散到全身。你把症状、用药和时间逐项写下，希望下一轮能更早识别这条恶化路径。',
+      memoryEarned, keyChoices: ['感染迹象持续恶化', '健康归零'],
+    };
+  }
+  if (state.injuries.includes('外伤')) {
     return {
       id: 'death', variantId: 'death-injury', title: '伤口没有等到天亮',
-      text: '身体先于倒计时抵达极限。你把用过的药盒和症状时间写在墙上，希望下一次能更早处理。',
-      memoryEarned, keyChoices: ['持续伤病未能控制'],
+      text: '失血和反复发炎耗尽了最后的恢复能力。你把用过的药盒和处理时间写在墙上，希望下一次能更早包扎。',
+      memoryEarned, keyChoices: ['外伤未能控制', '健康归零'],
+    };
+  }
+  if (state.weather === '寒潮' && state.shelter.fuel < 2) {
+    return {
+      id: 'death', variantId: 'death-cold', title: '炉火先于寒潮熄灭',
+      text: '最后一点燃料在凌晨耗尽。你把外套、窗帘和毯子全压在身上，体温仍然一点点离开身体。',
+      memoryEarned, keyChoices: ['寒潮期间燃料不足', '失温导致健康归零'],
+    };
+  }
+  if (state.weather === '闷热' && state.stats.hydration < 20) {
+    return {
+      id: 'death', variantId: 'death-heat', title: '屋里没有一口凉下来的空气',
+      text: '停电后的热量积在水泥墙之间。缺水让意识变得迟缓，你最终没能再走到储物架前。',
+      memoryEarned, keyChoices: ['闷热与缺水叠加', '健康归零'],
+    };
+  }
+  if (state.stats.stamina <= 0) {
+    return {
+      id: 'death', variantId: 'death-exhaustion', title: '你没有从下一次休息中醒来',
+      text: '连续行动把身体推过了能够恢复的边界。清单上还有下一件事，但握笔的手已经没有力气。',
+      memoryEarned, keyChoices: ['体力耗尽', '健康归零'],
     };
   }
   return {
-    id: 'death', variantId: 'death-exhaustion', title: '你的记录停在这一页',
+    id: 'death', variantId: 'death-collapse', title: '你的记录停在这一页',
     text: '身体先于倒计时抵达极限。你把剩下的线索写在墙上，希望下一次醒来时，还记得其中一点。',
     memoryEarned, keyChoices: ['健康归零'],
   };
@@ -70,6 +119,20 @@ function survivorOutcome(state: GameState): Outcome {
       memoryEarned: 3, keyChoices: ['尝试发送证据失败', '选择普通撤离'],
     };
   }
+  if (state.flags.includes('remained-behind')) {
+    return {
+      id: 'survivor', variantId: 'survivor-caretaker', title: '普通结局 · 最后的值守者',
+      text: `第${goal}天，西侧通道开放时你没有上车。车队离开后，你重新检查水箱、公共频段和每一扇仍有人回应的门。城市没有恢复，但这栋楼还没有变成空壳。`,
+      memoryEarned: 4, keyChoices: ['主动放弃公开撤离', '留守街区'],
+    };
+  }
+  if (state.debt && state.debt.missedCollections >= 2) {
+    return {
+      id: 'survivor', variantId: 'survivor-debt-flight', title: '普通结局 · 名单之外的乘客',
+      text: `第${goal}天清晨，你避开催收者盯守的主通道，从物资车底层越过检查点。你活着离开了封锁区，但那份债务名单比官方撤离名单传得更快。`,
+      memoryEarned: 3, keyChoices: [`经历 ${state.debt.missedCollections} 次逾期催收`, '绕开公开登记'],
+    };
+  }
   if (trustedNpcCount(state) >= 2) {
     return {
       id: 'survivor', variantId: 'survivor-community', title: '普通结局 · 一起走过西侧通道',
@@ -82,6 +145,13 @@ function survivorOutcome(state: GameState): Outcome {
       id: 'survivor', variantId: 'survivor-official', title: '普通结局 · 名单上的座位',
       text: `第${goal}天清晨，官方车辆终于出现在西侧通道。你按要求只带一只包，经过三次身份核验后坐进最后一排。车窗外的城市仍没有解释。`,
       memoryEarned: 3, keyChoices: ['选择相信官方撤离', '独自离城'],
+    };
+  }
+  if (state.broadcasts === 0) {
+    return {
+      id: 'survivor', variantId: 'survivor-uncontacted', title: '普通结局 · 没有呼号的人',
+      text: `第${goal}天清晨，你独自走进西侧通道。整场封锁期间，没有任何人知道这间避难所里住着谁；登记员第一次问起姓名时，你停了几秒才回答。`,
+      memoryEarned: 3, keyChoices: ['全程没有建立有效广播联络', '独自离城'],
     };
   }
   return {
@@ -121,19 +191,20 @@ function truthOutcome(state: GameState): Outcome {
 }
 
 export function determineOutcome(state: GameState): Outcome | null {
-  if (state.stats.health <= 0 || state.shelter.integrity <= 0) return deathOutcome(state);
+  if (state.stats.health <= 0 || state.shelter.integrity <= 0 || state.isolationNights >= 3) return deathOutcome(state);
   if (state.flags.includes('ending:truth')) return truthOutcome(state);
   if (state.flags.includes('ending:survivor')) return survivorOutcome(state);
   return null;
 }
 
-export function chooseEvacuation(state: GameState, route: 'survivor' | 'truth'): { state: GameState; ok: boolean; message?: string } {
+export function chooseEvacuation(state: GameState, route: 'survivor' | 'truth' | 'remain'): { state: GameState; ok: boolean; message?: string } {
   if (!state.flags.includes('evacuation-choice-pending')) return { state, ok: false, message: '撤离通道尚未开放。' };
   if (state.dailySettlement) return { state, ok: false, message: '先确认最后一天的愿望结算。' };
   if (route === 'truth' && !state.flags.includes('truth-transmitted')) return { state, ok: false, message: '证据尚未成功送出，无法选择维修通道。' };
   const next = structuredClone(state);
   next.flags = next.flags.filter((flag) => flag !== 'evacuation-choice-pending');
-  next.flags.push(`ending:${route}`);
+  if (route === 'remain') next.flags.push('remained-behind', 'ending:survivor');
+  else next.flags.push(`ending:${route}`);
   const outcome = determineOutcome(next);
   if (!outcome) return { state, ok: false, message: '结局条件尚未形成。' };
   return { state: finishRun(next, outcome), ok: true };

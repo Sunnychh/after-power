@@ -146,6 +146,16 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   if (next.stats.hydration < 20) next = applyEffect(next, { stats: { health: next.stats.hydration === 0 ? -22 : -12 } }, '严重脱水');
 
   next = assessDebtNight(next);
+  if (next.broadcasts === 0 && next.stats.morale <= 20) {
+    next.isolationNights += 1;
+    next = applyEffect(next, { stats: { health: next.isolationNights >= 2 ? -4 : 0, stamina: -3 } }, '持续孤立');
+    next.logs.push(createLog(next, `无人回应 · 第 ${next.isolationNights} 夜`, next.isolationNights >= 2
+      ? '你已经连续多夜没有听见任何真实的人声。睡眠被楼道里的幻听切碎；如果再不建立联络或恢复精神，求生意志会彻底崩溃。'
+      : '收音机只有底噪，手机通讯录里的名字都无法接通。这还不是终点，但孤立已经开始消耗身体。', 'bad'));
+  } else if (next.isolationNights > 0) {
+    next.logs.push(createLog(next, '孤立中断', next.broadcasts > 0 ? '固定频段里终于有人回应。仅仅确认另一个人还活着，就让漫长的夜恢复了边界。' : '你把精神状态拉回危险线以上，重新开始记录日期和行动。', 'good'));
+    next.isolationNights = 0;
+  }
 
   next.logs = [...next.logs, createLog(
     next,

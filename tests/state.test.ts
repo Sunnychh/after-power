@@ -74,6 +74,25 @@ test('夜间结算明确消耗食物与饮水', () => {
   assert.ok(result.state.logs.some((log) => log.title.includes('夜间结算')));
 });
 
+test('低精神且无人联络会累计孤立夜数，第三夜进入孤立死亡结局', () => {
+  let state = survivalState('isolation-ending');
+  state.autoRations = false;
+  state.stats.morale = 0;
+  for (let night = 1; night <= 3; night += 1) {
+    const result = endDay(state);
+    state = result.state;
+    if (night < 3) {
+      assert.equal(state.isolationNights, night);
+      assert.ok(state.dailySettlement);
+      state = continueAfterMissedWish(state).state;
+      state.currentEventId = undefined;
+      state.stats.morale = 0;
+    }
+  }
+  assert.equal(state.phase, 'ended');
+  assert.equal(state.outcome?.variantId, 'death-isolation');
+});
+
 test('同种子、同操作得到一致探索结果', () => {
   const first = survivalState('AFTERLIGHT-001');
   const second = survivalState('AFTERLIGHT-001');

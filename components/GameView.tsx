@@ -125,6 +125,12 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           disabledReason: state.flags.includes('truth-transmitted') ? undefined : '证据没有成功发出，维修通道路线未建立',
           onSelect: () => run(chooseEvacuation(state, 'truth')),
         },
+        {
+          id: 'remain-behind',
+          label: '放弃车位，留守街区',
+          hint: '结束本轮并进入留守者结局；人物关系和社区准备会写入尾声',
+          onSelect: () => run(chooseEvacuation(state, 'remain')),
+        },
       ];
     }
     if (event) {
@@ -410,6 +416,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <span className="section-kicker">DANGER CHECK</span>
               <h2>危险判定怎么读</h2>
               <p>标签中的百分比就是当前受险概率。行动时生成 1—100 的种子随机值：<strong>大于风险线＝安全</strong>；落在风险线以内＝轻微后果；低于风险线一半＝严重后果。日志会列出基础风险及每个加减因素。</p>
+            </section>
+          )}
+          {state.isolationNights > 0 && (
+            <section className="isolation-panel">
+              <span className="section-kicker">ISOLATION WARNING</span>
+              <h2>连续孤立 {state.isolationNights} / 3 夜</h2>
+              <p>精神低于危险线且没有任何有效广播联络。收听广播建立联系人，或先通过休息与物资把精神恢复到 20 以上，即可中断累计。</p>
             </section>
           )}
           <section>
