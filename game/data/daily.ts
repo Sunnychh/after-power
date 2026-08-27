@@ -55,7 +55,7 @@ export const DAILY_WISHES: DailyWishDefinition[] = [
     name: '认真照顾一次自己',
     description: '休息、制作热食，或主动使用一件饮食与药品。',
     rewardPoints: 2,
-    matchingActions: ['survival:rest', 'survival:cook', 'furniture:gas-stove', 'furniture:microwave', 'furniture:electric-hotpot', 'use:'],
+    matchingActions: ['survival:rest', 'furniture:gas-stove', 'furniture:microwave', 'furniture:electric-hotpot', 'use:'],
   },
   {
     id: 'survival-secure',

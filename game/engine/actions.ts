@@ -164,7 +164,7 @@ export function performPrepAction(state: GameState, action: PrepActionId): Resul
   return completeTimedAction(next, spec.minutes, `prep:${action}`);
 }
 
-export type SurvivalActionId = 'rest' | 'repair' | 'barricade' | 'radio' | 'generator' | 'cook' | 'purify' | 'trade-water' | 'trade-med' | 'truth';
+export type SurvivalActionId = 'rest' | 'repair' | 'barricade' | 'radio' | 'generator' | 'purify' | 'drink-storage' | 'trade-water' | 'trade-med' | 'truth';
 
 export function performSurvivalAction(state: GameState, action: SurvivalActionId): Result {
   if (state.phase !== 'survival') return { state, ok: false, message: '当前不在灾后行动阶段。' };
@@ -174,8 +174,8 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     barricade: 120,
     radio: state.shelter.power >= 2 || inventoryCount(state.inventory, 'batteries') > 0 ? 60 : 120,
     generator: 30,
-    cook: 90,
     purify: 90,
+    'drink-storage': 20,
     'trade-water': 60,
     'trade-med': 60,
     truth: 180,
@@ -220,20 +220,16 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     if (next.shelter.fuel < 3) return { state, ok: false, message: '燃料不足 3。' };
     title = '启动备用电源'; body = '发电机在阳台上低声运转，你只开了足够充电的一小段时间。';
     next = applyEffect(next, { shelter: { fuel: -3, power: 9 }, stats: { morale: 3 } }, title);
-  } else if (action === 'cook') {
-    const needs = [['rice', 1], ['water-bottle', 1]] as const;
-    const missing = needs.find(([id, count]) => inventoryCount(next.inventory, id) < count);
-    if (!next.furniture['gas-stove'].enabled) return { state, ok: false, message: '燃气炉当前不可用。' };
-    if (missing || next.shelter.fuel < 2) return { state, ok: false, message: missing ? `缺少 ${ITEM_MAP[missing[0]].name}` : '燃料不足 2。' };
-    title = '燃气炉煮饭'; body = '米在小锅里慢慢涨开。你把火关到最小，没有浪费一滴水。';
-    next = applyEffect(next, { inventory: { rice: -1, 'water-bottle': -1 }, shelter: { fuel: -2 }, stats: { satiety: 48, hydration: 8, morale: 9, stamina: 4 } }, title);
-    next.furniture['gas-stove'].lastUsedDay = absoluteDay(next);
   } else if (action === 'purify') {
     if (inventoryCount(next.inventory, 'purifier-tablet') < 1 || inventoryCount(next.inventory, 'filter-cloth') < 1 || next.shelter.water < 6) {
       return { state, ok: false, message: '需要净水片、滤布与 6 单位储水。' };
     }
     title = '处理雨水'; body = '水先经过滤布，再静置消毒。你分装成两只干净水瓶。';
     next = applyEffect(next, { inventory: { 'purifier-tablet': -1, 'filter-cloth': -1, 'water-bottle': 2 }, shelter: { water: -6 } }, title);
+  } else if (action === 'drink-storage') {
+    if (next.shelter.water < 4) return { state, ok: false, message: '储水装置至少需要 4 单位可用水。' };
+    title = '从储水装置取水'; body = '你打开标有日期的水阀，只接出一杯当天需要的量，然后重新检查密封。';
+    next = applyEffect(next, { shelter: { water: -4 }, stats: { hydration: 26, morale: 1 } }, title);
   } else if (action === 'trade-water') {
     if (!isNpcUnlocked(next, 'chen-meng')) return { state, ok: false, message: '尚未通过广播与陈檬建立联络。' };
     if (inventoryCount(next.inventory, 'chocolate') < 1) return { state, ok: false, message: '缺少可交换的巧克力。' };

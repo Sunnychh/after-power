@@ -24,25 +24,25 @@ export const FURNITURE: FurnitureDefinition[] = [
     id: 'gas-stove',
     name: '燃气炉',
     source: '公寓自带',
-    description: '不依赖电网，适合把主食煮成一顿热饭。',
-    cost: '燃料 -2 · 1小时',
-    benefit: '饱腹 +38 · 水分 +6 · 精神 +6 · 体力 +4',
+    description: '从当前食材中随机选择可做的炖煮或烙制料理。',
+    cost: '燃料 2—3 · 1小时15分',
+    benefit: '4 种配方 · 可优先使用储水',
   },
   {
     id: 'microwave',
     name: '微波炉',
     source: '公寓自带',
-    description: '最快的热食方式，但停电时只能闲置。',
-    cost: '电力 -2 · 20分钟',
-    benefit: '饱腹 +42 · 精神 +6 · 体力 +3',
+    description: '最快且较稳定，适合燕麦、蛋粉和罐头组合。',
+    cost: '电力 -2 · 30分钟',
+    benefit: '4 种配方 · 练习成本较低',
   },
   {
     id: 'electric-hotpot',
     name: '电火锅',
     source: '公寓自带',
-    description: '用水和方便面煮一锅热汤，恢复最全面。',
-    cost: '电力 -3 · 1小时30分',
-    benefit: '饱腹 +48 · 水分 +12 · 精神 +10 · 体力 +6',
+    description: '用较多食材和水随机组合一锅恢复全面的热食。',
+    cost: '电力 3—4 · 1小时30分',
+    benefit: '4 种配方 · 高收益也更耗储备',
   },
 ];
 
@@ -51,4 +51,3 @@ export const FURNITURE_MAP = Object.fromEntries(FURNITURE.map((item) => [item.id
 export function createFurnitureState(): FurnitureState {
   return Object.fromEntries(FURNITURE.map((item) => [item.id, { condition: 100, enabled: true }])) as FurnitureState;
 }
-

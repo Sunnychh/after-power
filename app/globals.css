@@ -258,6 +258,7 @@ kbd { border: 1px solid #40513b; color: var(--muted); padding: 3px 7px; font-siz
 .item-main strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 520; }
 .item-main strong em { color: var(--green); font-style: normal; font-size: 9px; }
 .item-main span { color: var(--muted); font-size: 8px; }
+.item-description { color: #82907e !important; font-family: system-ui, "PingFang SC", sans-serif; font-size: 8px !important; line-height: 1.45; }
 .category-食物 { --category-color: #d0a766; }.category-饮水 { --category-color: #73adc1; }.category-药品 { --category-color: #9ecf91; }.category-工具 { --category-color: #9ca8aa; }.category-能源 { --category-color: #e3c55f; }.category-防护 { --category-color: #88a2d2; }.category-材料 { --category-color: #c29c7c; }.category-特殊 { --category-color: #c58acf; }
 .category-dot { width: 5px; height: 5px; margin-top: 4px; border-radius: 50%; background: var(--category-color, var(--muted)); box-shadow: 0 0 6px var(--category-color, currentColor); }
 .category-pill { width: max-content; display: inline-flex; border: 1px solid color-mix(in srgb, var(--category-color, var(--muted)) 45%, transparent); background: color-mix(in srgb, var(--category-color, var(--muted)) 10%, transparent); color: var(--category-color, var(--muted)) !important; padding: 2px 5px; font-size: 7px !important; line-height: 1.2; }

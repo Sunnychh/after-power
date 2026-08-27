@@ -51,6 +51,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
                       <strong>{item.name} <em>×{inventoryCount(state.inventory, item.id)}</em></strong>
                       <span className={`category-pill category-${item.category}`}>{item.category}</span>
                       {effects.length > 0 && <span className="effect-list">{effects.map((effect) => <i key={effect}>{effect}</i>)}</span>}
+                      <span className="item-description">{item.description}</span>
                       <span>{item.weight}kg / 件</span>
                       <span className="expiry-batches" aria-label={`${item.name}保存期限`}>
                         {item.perishableDays ? batches.map((batch, index) => {
@@ -81,6 +82,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             <div><dt>备用电力</dt><dd>{state.shelter.power} 单位</dd></div>
             <div><dt>燃料储备</dt><dd>{state.shelter.fuel} 单位</dd></div>
             <div><dt>供电改造</dt><dd>等级 {state.shelter.generator}</dd></div>
+            <div><dt>料理技能</dt><dd>{state.cookingSkill} / 5 级 · 尝试 {state.cookingAttempts} 次</dd></div>
           </dl>
           <section className="furniture-section" aria-labelledby="furniture-title">
             <div className="furniture-heading"><span className="section-kicker">BUILT-IN FURNITURE</span><h2 id="furniture-title">自带家具</h2></div>

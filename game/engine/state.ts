@@ -100,6 +100,8 @@ export function createInitialState(
     weather: '晴冷',
     intel: 0,
     broadcasts: 0,
+    cookingAttempts: 0,
+    cookingSkill: 0,
     relationships: Object.fromEntries(NPCS.map((npc) => [npc.id, 0])),
     injuries: [],
     flags: unlocked.map((ability) => `ability:${ability}`),

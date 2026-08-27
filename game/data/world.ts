@@ -43,7 +43,7 @@ export const LOCATIONS: LocationDefinition[] = [
     district: '河西路口 · 0.8km',
     risk: 28,
     description: '卷帘门卡在半腰，冷柜早已停转。后仓也许还有耐储食物。',
-    loot: ['water-bottle', 'crackers', 'canned-beans', 'chocolate', 'candles'],
+    loot: ['water-bottle', 'juice-box', 'canned-soda', 'crackers', 'canned-beans', 'oats', 'flour', 'dried-vegetables', 'egg-powder', 'milk-powder', 'luncheon-meat', 'potatoes', 'dried-mushrooms', 'bouillon', 'cooking-oil', 'soy-sauce', 'frozen-dumplings', 'tomato-can', 'chocolate', 'candles'],
     uniqueItem: 'family-photo',
   },
   {
@@ -87,7 +87,7 @@ export const LOCATIONS: LocationDefinition[] = [
     district: '封锁线内环 · 3.1km',
     risk: 62,
     description: '十几辆公交车头朝外停着，调度室的传真机吐着半张纸。',
-    loot: ['fuel-can', 'sports-drink', 'jerky', 'respirator', 'toolkit'],
+    loot: ['fuel-can', 'sports-drink', 'juice-box', 'canned-soda', 'jerky', 'luncheon-meat', 'oats', 'bouillon', 'respirator', 'toolkit'],
     uniqueItem: 'bus-manifest',
   },
 ];

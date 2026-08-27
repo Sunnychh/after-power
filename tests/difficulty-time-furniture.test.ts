@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ITEM_MAP, ITEMS } from '../game/data/items.ts';
-import { exploreLocation, performPrepAction } from '../game/engine/actions.ts';
+import { RECIPES } from '../game/data/recipes.ts';
+import { exploreLocation, performPrepAction, performSurvivalAction } from '../game/engine/actions.ts';
 import { continueAfterMissedWish } from '../game/engine/daily.ts';
 import { endDay, extendColdStorage } from '../game/engine/day.ts';
-import { furnitureActionDisabledReason, performFurnitureAction } from '../game/engine/furniture.ts';
+import { availableCookingRecipes, cookingSuccessChance, furnitureActionDisabledReason, performFurnitureAction } from '../game/engine/furniture.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { createInitialState, rollDanger } from '../game/engine/state.ts';
 import { chooseEvacuation } from '../game/engine/outcomes.ts';
@@ -112,19 +113,23 @@ test('行动恰好到日终会自动跨日，时间不足则完全不变', () =>
   assert.deepEqual(failed.state, snapshot);
 });
 
-test('燃气炉和微波炉严格守恒资源并恢复状态', () => {
+test('随机料理严格消耗食材与储水，并生成有保质期的成品', () => {
   const gas = survivalState('gas', 'easy');
-  gas.stats.satiety = 30;
-  const noodles = inventoryCount(gas.inventory, 'instant-noodles');
-  const water = inventoryCount(gas.inventory, 'water-bottle');
+  gas.inventory = addItem(gas.inventory, ITEM_MAP.rice, 1, 8);
+  gas.inventory = addItem(gas.inventory, ITEM_MAP['dried-vegetables'], 1, 8);
+  const riceBefore = inventoryCount(gas.inventory, 'rice');
+  const vegetablesBefore = inventoryCount(gas.inventory, 'dried-vegetables');
+  gas.shelter.water = 10;
   const fuel = gas.shelter.fuel;
   const cooked = performFurnitureAction(gas, 'gas-stove');
   assert.equal(cooked.ok, true);
-  assert.equal(cooked.state.clockMinutes, SURVIVAL_DAY_START + 60);
-  assert.equal(inventoryCount(cooked.state.inventory, 'instant-noodles'), noodles - 1);
-  assert.equal(inventoryCount(cooked.state.inventory, 'water-bottle'), water - 1);
+  assert.equal(cooked.state.clockMinutes, SURVIVAL_DAY_START + 75);
+  assert.equal(inventoryCount(cooked.state.inventory, 'rice'), riceBefore - 1);
+  assert.equal(inventoryCount(cooked.state.inventory, 'dried-vegetables'), vegetablesBefore - 1);
+  assert.equal(cooked.state.shelter.water, 6);
   assert.equal(cooked.state.shelter.fuel, fuel - 2);
-  assert.equal(cooked.state.stats.satiety, 68);
+  assert.equal(cooked.state.cookingAttempts, 1);
+  assert.equal(inventoryCount(cooked.state.inventory, 'dish-vegetable-congee') + inventoryCount(cooked.state.inventory, 'scorched-meal'), 1);
 
   const noPower = survivalState('microwave', 'easy');
   noPower.shelter.power = 0;
@@ -133,6 +138,57 @@ test('燃气炉和微波炉严格守恒资源并恢复状态', () => {
   const failed = performFurnitureAction(noPower, 'microwave');
   assert.equal(failed.ok, false);
   assert.deepEqual(failed.state, snapshot);
+});
+
+test('每三次料理提升技能并提高后续成功率', () => {
+  let state = survivalState('cooking-level', 'normal');
+  state.shelter.power = 30;
+  state.shelter.water = 30;
+  state.inventory = addItem(state.inventory, ITEM_MAP.oats, 3, 8);
+  state.inventory = addItem(state.inventory, ITEM_MAP['milk-powder'], 3, 8);
+  const initialChance = cookingSuccessChance(state);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = performFurnitureAction(state, 'microwave');
+    assert.equal(result.ok, true);
+    state = result.state;
+  }
+  assert.equal(state.cookingAttempts, 3);
+  assert.equal(state.cookingSkill, 1);
+  assert.ok(cookingSuccessChance(state) > initialChance);
+});
+
+test('储水可以主动饮用，料理池至少包含十二种不同组合', () => {
+  const state = survivalState('stored-water', 'normal');
+  state.shelter.water = 8;
+  state.stats.hydration = 40;
+  const drank = performSurvivalAction(state, 'drink-storage');
+  assert.equal(drank.ok, true);
+  assert.equal(drank.state.shelter.water, 4);
+  assert.equal(drank.state.stats.hydration, 66);
+  assert.ok(RECIPES.length >= 12);
+  assert.ok(ITEMS.length >= 65);
+  for (const appliance of ['gas-stove', 'microwave', 'electric-hotpot'] as const) {
+    assert.ok(RECIPES.filter((recipe) => recipe.appliance === appliance).length >= 4);
+  }
+  for (const recipe of RECIPES) {
+    assert.ok(ITEM_MAP[recipe.output], `${recipe.id} 缺少料理成品`);
+    for (const ingredient of Object.keys(recipe.ingredients)) assert.ok(ITEM_MAP[ingredient], `${recipe.id} 缺少食材 ${ingredient}`);
+  }
+  assert.equal(availableCookingRecipes(state, 'gas-stove').length, 0);
+});
+
+test('相同种子与库存得到相同的随机料理结果', () => {
+  const prepare = () => {
+    const state = survivalState('same-cooking', 'easy');
+    state.shelter.power = 20;
+    state.shelter.water = 20;
+    state.inventory = addItem(state.inventory, ITEM_MAP.oats, 1, 8);
+    state.inventory = addItem(state.inventory, ITEM_MAP['milk-powder'], 1, 8);
+    state.inventory = addItem(state.inventory, ITEM_MAP['canned-beans'], 1, 8);
+    state.inventory = addItem(state.inventory, ITEM_MAP['luncheon-meat'], 1, 8);
+    return state;
+  };
+  assert.deepEqual(performFurnitureAction(prepare(), 'microwave'), performFurnitureAction(prepare(), 'microwave'));
 });
 
 test('冰箱只延长尚未过期的易腐批次', () => {

@@ -21,7 +21,7 @@ import {
   visitStore,
   type PrepActionId,
 } from '../game/engine/actions.ts';
-import { furnitureActionDisabledReason, performFurnitureAction, type FurnitureActionId } from '../game/engine/furniture.ts';
+import { cookingPreview, FURNITURE_ACTION_MINUTES, furnitureActionDisabledReason, performFurnitureAction, type FurnitureActionId } from '../game/engine/furniture.ts';
 import { inventoryCount } from '../game/engine/inventory.ts';
 import { isNpcUnlocked } from '../game/engine/npcs.ts';
 import { claimDailyReward, continueAfterMissedWish, dailyWishProgress } from '../game/engine/daily.ts';
@@ -195,19 +195,22 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       return [...locationChoices, controlChoice, { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') }];
     }
     if (mode === 'craft') {
-      const furnitureChoice = (id: FurnitureActionId, label: string, hint: string): ActionChoice => ({
-        id,
-        label,
-        hint,
-        disabledReason: furnitureActionDisabledReason(state, id),
-        onSelect: () => run(performFurnitureAction(state, id)),
-      });
+      const furnitureChoice = (id: FurnitureActionId, label: string): ActionChoice => {
+        const preview = cookingPreview(state, id);
+        return {
+          id,
+          label,
+          hint: `${formatDuration(FURNITURE_ACTION_MINUTES[id])} · 当前可做 ${preview.recipes} 种 · 技能 ${preview.skill} 级 · 成功率 ${preview.chance}% · 优先使用储水`,
+          disabledReason: furnitureActionDisabledReason(state, id),
+          onSelect: () => run(performFurnitureAction(state, id)),
+        };
+      };
       return [
-        furnitureChoice('gas-stove', '燃气炉 · 煮一碗面', '1小时 · 面和水 -1 · 燃料 -2 · 饱腹 +38'),
-        furnitureChoice('microwave', '微波炉 · 加热罐头', '20分钟 · 罐头 -1 · 电力 -2 · 饱腹 +42'),
-        furnitureChoice('electric-hotpot', '电火锅 · 煮热汤', '1小时30分 · 面和水 -1 · 电力 -3 · 全面恢复'),
+        furnitureChoice('gas-stove', '燃气炉 · 随机料理'),
+        furnitureChoice('microwave', '微波炉 · 随机料理'),
+        furnitureChoice('electric-hotpot', '电火锅 · 随机料理'),
+        { id: 'drink-storage', label: '从储水装置取水', hint: '20分钟 · 储水 -4 · 水分 +26', disabledReason: timedReason(state, 20) ?? (state.shelter.water < 4 ? '储水不足 4' : null), onSelect: () => run(performSurvivalAction(state, 'drink-storage')) },
         { id: 'barricade', label: '木板加固', hint: '2小时 · 木板 -1 · 完整度 +20', disabledReason: timedReason(state, 120) ?? (inventoryCount(state.inventory, 'wood-board') < 1 ? '缺少木板 ×1' : null), onSelect: () => run(performSurvivalAction(state, 'barricade')) },
-        { id: 'cook', label: '燃气炉 · 煮一锅米饭', hint: '1小时30分 · 米和水 -1 · 燃料 -2 · 饱腹 +48', disabledReason: timedReason(state, 90) ?? (inventoryCount(state.inventory, 'rice') < 1 ? '缺少真空米砖' : inventoryCount(state.inventory, 'water-bottle') < 1 ? '缺少瓶装水' : state.shelter.fuel < 2 ? '燃料不足 2' : null), onSelect: () => run(performSurvivalAction(state, 'cook')) },
         { id: 'purify', label: '处理雨水', hint: '1小时30分 · 净水片、滤布、储水 6 → 瓶装水 2', disabledReason: timedReason(state, 90) ?? (inventoryCount(state.inventory, 'purifier-tablet') < 1 ? '缺少净水片' : inventoryCount(state.inventory, 'filter-cloth') < 1 ? '缺少活性炭滤布' : state.shelter.water < 6 ? '储水不足 6' : null), onSelect: () => run(performSurvivalAction(state, 'purify')) },
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
       ];

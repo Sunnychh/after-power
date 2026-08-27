@@ -200,6 +200,8 @@ export interface GameState {
   weather: Weather;
   intel: number;
   broadcasts: number;
+  cookingAttempts: number;
+  cookingSkill: number;
   relationships: Record<string, number>;
   injuries: string[];
   flags: string[];
