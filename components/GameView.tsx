@@ -308,7 +308,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         return {
           id,
           label,
-          hint: `${formatDuration(FURNITURE_ACTION_MINUTES[id])} · 当前可做 ${preview.recipes} 种 · 技能 ${preview.skill} 级 · 成功率 ${preview.chance}% · 优先使用储水`,
+          hint: `${formatDuration(FURNITURE_ACTION_MINUTES[id])} · 完整配方 ${preview.recipes} 种 / 可投入食材 ${preview.ingredients} 种 · 配方 ${preview.chance}% / 即兴 ${preview.improvisationChance}% · 缺配料也能开火`,
           disabledReason: furnitureActionDisabledReason(state, id),
           onSelect: () => run(performFurnitureAction(state, id)),
         };

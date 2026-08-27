@@ -25,6 +25,7 @@ export const RECIPES: CookingRecipe[] = [
   { id: 'steamed-egg', name: '杯装蒸蛋', appliance: 'microwave', ingredients: { 'egg-powder': 1, 'soy-sauce': 1 }, water: 2, energy: 2, output: 'dish-steamed-egg', description: '蛋液比例准确时，短时间就能凝固。' },
 
   { id: 'dumpling-soup', name: '蔬菜饺子汤', appliance: 'electric-hotpot', ingredients: { 'frozen-dumplings': 1, 'dried-vegetables': 1 }, water: 5, energy: 3, output: 'dish-dumpling-soup', description: '解冻后的饺子皮很脆弱，水滚得太急会破。' },
+  { id: 'plain-dumplings', name: '清水煮饺子', appliance: 'electric-hotpot', ingredients: { 'frozen-dumplings': 1 }, water: 4, energy: 3, output: 'dish-boiled-dumplings', description: '只有水和速冻水饺也能成一顿饭；水开后需要及时添一次凉水。' },
   { id: 'mushroom-broth', name: '香菇清汤', appliance: 'electric-hotpot', ingredients: { 'dried-mushrooms': 1, bouillon: 1 }, water: 5, energy: 3, output: 'dish-mushroom-broth', description: '食材简单，关键是别把汤块放得太咸。' },
   { id: 'mixed-hotpot', name: '杂烩小火锅', appliance: 'electric-hotpot', ingredients: { potatoes: 1, 'luncheon-meat': 1, 'dried-vegetables': 1 }, water: 5, energy: 4, output: 'dish-mixed-hotpot', description: '食材最多、恢复最好，也最考验下锅顺序。' },
   { id: 'tomato-noodles', name: '番茄汤面', appliance: 'electric-hotpot', ingredients: { 'tomato-can': 1, 'instant-noodles': 1 }, water: 3, energy: 3, output: 'dish-tomato-noodles', description: '番茄底很容易粘锅，需要一直搅动。' },

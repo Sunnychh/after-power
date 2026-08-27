@@ -5,7 +5,7 @@ import { RECIPES } from '../game/data/recipes.ts';
 import { exploreLocation, performPrepAction, performSurvivalAction } from '../game/engine/actions.ts';
 import { continueAfterMissedWish } from '../game/engine/daily.ts';
 import { endDay, extendColdStorage } from '../game/engine/day.ts';
-import { availableCookingRecipes, cookingSuccessChance, furnitureActionDisabledReason, performFurnitureAction } from '../game/engine/furniture.ts';
+import { availableCookingIngredients, availableCookingRecipes, cookingSuccessChance, furnitureActionDisabledReason, performFurnitureAction } from '../game/engine/furniture.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { createInitialState, rollDanger } from '../game/engine/state.ts';
 import { chooseEvacuation } from '../game/engine/outcomes.ts';
@@ -188,6 +188,46 @@ test('相同种子与库存得到相同的随机料理结果', () => {
     return state;
   };
   assert.deepEqual(performFurnitureAction(prepare(), 'microwave'), performFurnitureAction(prepare(), 'microwave'));
+});
+
+test('不完整食材不会锁住厨具，任何未烹饪食物都能尝试即兴料理', () => {
+  const state = survivalState('improvise-any-food', 'normal');
+  state.shelter.power = 6;
+  state.inventory = addItem({}, ITEM_MAP['canned-beans'], 1, 8);
+  assert.equal(availableCookingRecipes(state, 'microwave').length, 0);
+  assert.equal(availableCookingIngredients(state).some((item) => item.id === 'canned-beans'), true);
+  assert.equal(furnitureActionDisabledReason(state, 'microwave'), null);
+  const result = performFurnitureAction(state, 'microwave');
+  assert.equal(result.ok, true);
+  assert.equal(inventoryCount(result.state.inventory, 'canned-beans'), 0);
+  assert.equal(inventoryCount(result.state.inventory, 'dish-improvised-meal') + inventoryCount(result.state.inventory, 'scorched-meal'), 1);
+  assert.ok(result.state.logs.at(-2)?.body.includes('即兴成功判定') || result.state.logs.at(-1)?.body.includes('即兴成功判定'));
+});
+
+test('速冻水饺加一瓶水可成为清水煮饺子，缺水也能开火并得到对应成品', () => {
+  const withWater = survivalState('plain-dumplings', 'easy');
+  withWater.shelter.power = 8;
+  withWater.shelter.water = 0;
+  withWater.cookingSkill = 5;
+  withWater.inventory = addItem({}, ITEM_MAP['frozen-dumplings'], 1, 8);
+  withWater.inventory = addItem(withWater.inventory, ITEM_MAP['water-bottle'], 1, 8);
+  assert.ok(availableCookingRecipes(withWater, 'electric-hotpot').some((recipe) => recipe.id === 'plain-dumplings'));
+  const boiled = performFurnitureAction(withWater, 'electric-hotpot');
+  assert.equal(boiled.ok, true);
+  assert.equal(inventoryCount(boiled.state.inventory, 'frozen-dumplings'), 0);
+  assert.equal(inventoryCount(boiled.state.inventory, 'water-bottle'), 0);
+  assert.equal(inventoryCount(boiled.state.inventory, 'dish-boiled-dumplings') + inventoryCount(boiled.state.inventory, 'scorched-meal'), 1);
+
+  const dry = survivalState('dry-dumplings', 'normal');
+  dry.shelter.power = 8;
+  dry.shelter.water = 0;
+  dry.inventory = addItem({}, ITEM_MAP['frozen-dumplings'], 1, 8);
+  assert.equal(availableCookingRecipes(dry, 'electric-hotpot').length, 0);
+  assert.equal(furnitureActionDisabledReason(dry, 'electric-hotpot'), null);
+  const fried = performFurnitureAction(dry, 'electric-hotpot');
+  assert.equal(fried.ok, true);
+  assert.equal(inventoryCount(fried.state.inventory, 'frozen-dumplings'), 0);
+  assert.equal(inventoryCount(fried.state.inventory, 'dish-dry-dumplings') + inventoryCount(fried.state.inventory, 'dish-scorched-dumplings'), 1);
 });
 
 test('冰箱只延长尚未过期的易腐批次', () => {
