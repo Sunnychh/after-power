@@ -26,6 +26,13 @@ export interface ShelterState {
 export type ItemCategory = '食物' | '饮水' | '药品' | '工具' | '能源' | '防护' | '材料' | '特殊';
 export type StoreId = 'market' | 'pharmacy' | 'hardware' | 'fuel';
 
+export interface ShoppingTrip {
+  store: StoreId;
+  prepDay: number;
+  carriedWeight: number;
+  capacity: number;
+}
+
 export interface ItemDefinition {
   id: string;
   name: string;
@@ -202,6 +209,8 @@ export interface GameState {
   broadcasts: number;
   cookingAttempts: number;
   cookingSkill: number;
+  storePurchases: Record<string, number>;
+  shoppingTrip?: ShoppingTrip;
   relationships: Record<string, number>;
   injuries: string[];
   flags: string[];

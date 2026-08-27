@@ -14,6 +14,7 @@ import {
   exploreSubstationControl,
   performPrepAction,
   performSurvivalAction,
+  purchaseDisabledReason,
   purchaseItem,
   resolveCurrentEvent,
   substationControlAccess,
@@ -28,6 +29,7 @@ import { claimDailyReward, continueAfterMissedWish, dailyWishProgress } from '..
 import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
 import { clamp } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
+import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
@@ -43,6 +45,7 @@ const TUTORIAL = [
   { title: '每件物资都标保存期', body: '易腐物会按入库批次显示“剩余 N 天”或“今天到期”，其他物资会标为长期保存；冰箱会逐批延长仍有效的保质期。' },
   { title: '每天一个明确愿望', body: '系统每天直接给出一件当天能完成的事。达成后夜间领取奖励；没有完成也不会扣除任何状态或点数。' },
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
+  { title: '越早采购越稳妥', body: '第一天商店货最全，此后会逐日限购和缺货。每次出门还有随身负重上限；第七天闯商店可能受伤，也可能在无人收银时带回一包物资。' },
 ];
 
 function timedReason(state: GameState, minutes: number): string | null {
@@ -137,12 +140,16 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           ['fuel', '环路加油站', '密封燃料，价格不便宜'],
         ] as Array<[StoreId, string, string]>).map(([id, label, hint]) => ({
           id,
-          label,
-          hint: `1小时30分 · ${hint}`,
-          disabledReason: timedReason(state, 120),
+          label: state.prepDay === 7 ? `高风险 · ${label}` : label,
+          hint: state.prepDay === 7 ? `2小时30分 · ${hint} · 可能受伤，也可能免费带回残余物资` : `1小时30分 · ${hint}`,
+          danger: state.prepDay === 7 ? '高风险' : undefined,
+          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120),
           onSelect: () => {
             const result = visitStore(state, id);
-            if (onResult(result)) setShop(id);
+            if (onResult(result)) {
+              if (state.prepDay === 7) setMode('main');
+              else setShop(id);
+            }
           },
         }));
         return [...storeChoices, { id: 'back', label: '返回准备清单', hint: '不耗时', onSelect: () => setMode('main') }];
@@ -156,7 +163,14 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       });
       return [
         prep('work', '临时加班', '金钱 +¥170 · 体力 -18', 240, state.flags.includes(`worked:${state.prepDay}`) ? '今天已经工作过' : null),
-        { id: 'shops', label: '前往商店采购', hint: '1小时30分 · 到店后可连续购买', disabledReason: timedReason(state, 120), onSelect: () => setMode('shops') },
+        {
+          id: 'shops',
+          label: state.prepDay === 7 ? '封锁前最后采购' : '前往商店采购',
+          hint: state.prepDay === 7 ? '2小时30分 · 街面已失控：可能受伤，也可能免费带回残余物资' : `1小时30分 · ${prepSupplyMessage(state.prepDay)}`,
+          danger: state.prepDay === 7 ? '高风险' : undefined,
+          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120),
+          onSelect: () => setMode('shops'),
+        },
         prep('reinforce', '加固门窗', '¥70 · 完整度 +15', 180, state.money < 70 ? '金钱不足（需要 ¥70）' : null),
         prep('water', '改造储水', '¥90 · 储水 +18', 180, state.money < 90 ? '金钱不足（需要 ¥90）' : null),
         prep('power', '改善供电', '¥110 · 备用电力 +8', 180, state.money < 110 ? '金钱不足（需要 ¥110）' : null),
@@ -420,11 +434,12 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
 
       {shop && (
         <Modal title={STORE_NAMES[shop]} onClose={() => setShop(null)} footer={<button className="primary-inline" type="button" onClick={() => setShop(null)}>结束采购</button>}>
-          <p className="store-description">{STORE_DESCRIPTIONS[shop]}</p>
-          <div className="store-balance"><span>现金 <b>¥{state.money}</b></span><span>到店耗时 1小时30分 · 选购不另计时</span></div>
+          <p className="store-description">{STORE_DESCRIPTIONS[shop]} {prepSupplyMessage(state.prepDay)}</p>
+          <div className="store-balance"><span>现金 <b>¥{state.money}</b></span><span>随身包剩余 <b>{shoppingCarryRemaining(state).toFixed(1)} kg</b> · 选购不另计时</span></div>
           <div className="store-grid">
             {availableStoreItems(shop).map((item) => {
-              const affordable = state.money >= item.price;
+              const stock = storeStock(state, item);
+              const disabledReason = purchaseDisabledReason(state, item.id);
               const effects = formatItemEffects(item);
               const owned = inventoryCount(state.inventory, item.id);
               const easyPlan = state.difficulty === 'easy' ? item.easyPlan : undefined;
@@ -434,11 +449,12 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                   <div className="store-item-head"><strong>{item.name}</strong><b>¥{item.price}</b></div>
                   <div className="store-tags">
                     <span className={`category-pill category-${item.category}`}>{item.category}</span>
+                    <span className={`stock-tag ${stock.remaining === 0 ? 'sold-out' : stock.remaining === 1 ? 'last-one' : ''}`}>{stock.label}</span>
                     {easyPlan && <span className={`recommend-tag ${planComplete ? 'complete' : ''}`}>{planComplete ? '建议数量已备齐' : `简易${easyPlan.tier} · 建议×${easyPlan.target}`}</span>}
                   </div>
                   <p>{item.description}</p>
                   {effects.length > 0 && <div className="effect-list store-effects">{effects.map((effect) => <i key={effect}>{effect}</i>)}</div>}
-                  <footer><span>{item.weight} kg{item.perishableDays ? ` · ${item.perishableDays} 天保质` : ''} · 已有 {owned}</span><button type="button" disabled={!affordable} onClick={() => onResult(purchaseItem(state, item.id))}>{affordable ? '购买' : '钱不够'}</button></footer>
+                  <footer><span>{item.weight} kg{item.perishableDays ? ` · ${item.perishableDays} 天保质` : ''} · 已有 {owned}</span><button type="button" disabled={Boolean(disabledReason)} onClick={() => onResult(purchaseItem(state, item.id))}>{disabledReason ?? '购买'}</button></footer>
                 </article>
               );
             })}

@@ -63,6 +63,7 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   const beforeNight = structuredClone(state);
   if (state.phase === 'prep') {
     let next = structuredClone(state);
+    next.shoppingTrip = undefined;
     if (!reachedByClock && next.clockMinutes < dayEndMinutes(next)) {
       next.logs = [...next.logs, createLog(next, '提前就寝', '你关掉清单，给明天留出一副清醒的脑子。', 'system')];
     }

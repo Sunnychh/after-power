@@ -7,6 +7,7 @@ export interface DifficultyDefinition {
   description: string;
   startMoney: number;
   carryCapacity: number;
+  shoppingCarryCapacity: number;
   startingShelter: EventEffect['shelter'];
   startingInventory: Record<string, number>;
   riskModifier: number;
@@ -27,6 +28,7 @@ export const DIFFICULTIES: DifficultyDefinition[] = [
     description: '现金和基础物资更充足，白天更长，探索危险更低；第 10 夜即可等到撤离。',
     startMoney: 720,
     carryCapacity: 92,
+    shoppingCarryCapacity: 18,
     startingShelter: { integrity: 60, water: 12, power: 14, fuel: 10, storage: 90, generator: 1 },
     startingInventory: {
       'water-bottle': 4,
@@ -56,6 +58,7 @@ export const DIFFICULTIES: DifficultyDefinition[] = [
     description: '物资需要规划使用，重复探索收益会衰减；第 14 夜后开放普通撤离。',
     startMoney: 420,
     carryCapacity: 66,
+    shoppingCarryCapacity: 12,
     startingShelter: { integrity: 45 },
     startingInventory: {},
     riskModifier: 0,
@@ -74,6 +77,7 @@ export const DIFFICULTIES: DifficultyDefinition[] = [
     description: '现金、负重和探索产出都更紧，重复搜刮可能空手而归。',
     startMoney: 290,
     carryCapacity: 58,
+    shoppingCarryCapacity: 9,
     startingShelter: { integrity: 38 },
     startingInventory: { 'water-bottle': 1 },
     riskModifier: 10,

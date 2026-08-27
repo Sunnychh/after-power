@@ -5,7 +5,8 @@ import { LOCATION_MAP } from '../data/world.ts';
 import type { EventEffect, GameState, ItemDefinition, StoreId } from '../types.ts';
 import { addItem, canAddWeight, inventoryCount, inventoryWeight, removeItem } from './inventory.ts';
 import { determineOutcome, finishRun, truthEndingReady } from './outcomes.ts';
-import { seededPick } from './rng.ts';
+import { randomInt, seededPick } from './rng.ts';
+import { shoppingCarryCapacity, shoppingCarryRemaining, storePurchaseKey, storeStock } from './store.ts';
 import { completeTimedAction, endDay, type EngineResult } from './day.ts';
 import { dailyActionBlockedReason, recordDailyAction } from './daily.ts';
 import { isNpcUnlocked, nextBroadcastContact } from './npcs.ts';
@@ -94,25 +95,79 @@ export function resolveCurrentEvent(state: GameState, optionIndex: number): Resu
 
 export function visitStore(state: GameState, store: StoreId): Result {
   if (state.phase !== 'prep') return { state, ok: false, message: '封锁后商店已经停止营业。' };
+  if (state.prepDay === 7) return performLastDayShopping(state, store);
   const started = beginTimedAction(state, 90, 30);
   if (!started.state) return { state, ok: false, message: started.reason ?? '当前无法前往商店。' };
   const next = started.state;
   addFlag(next, `visited-store:${store}`);
-  next.logs = [...next.logs, createLog(next, '出门采购', '街上的人比昨天更多，货架上的选择比昨天更少。你在关门前赶到柜台。', 'system')];
+  next.shoppingTrip = { store, prepDay: next.prepDay, carriedWeight: 0, capacity: shoppingCarryCapacity(next) };
+  next.logs = [...next.logs, createLog(next, '出门采购', `${state.prepDay === 1 ? '街面还算平静，但抢购的苗头已经出现。' : '街上的人比昨天更多，货架上的选择也比昨天更少。'}你只带了一只能装 ${next.shoppingTrip.capacity}kg 的随身包，装满就必须回家。`, 'system')];
   return completeTimedAction(next, 90, 'prep:visit-store');
+}
+
+function performLastDayShopping(state: GameState, store: StoreId): Result {
+  const started = beginTimedAction(state, 150);
+  if (!started.state) return { state, ok: false, message: started.reason ?? '已经来不及冒险采购。' };
+  let next = started.state;
+  const injuryChance = next.difficulty === 'easy' ? 10 : next.difficulty === 'hard' ? 26 : 18;
+  const outcomeRoll = randomInt(next.rngState, 1, 100);
+  next.rngState = outcomeRoll.state;
+  const storeItems = availableStoreItems(store).sort((a, b) => a.id.localeCompare(b.id));
+
+  if (outcomeRoll.value <= injuryChance) {
+    next = applyEffect(next, { stats: { health: next.difficulty === 'hard' ? -14 : -9, stamina: -18, morale: -5 }, injury: outcomeRoll.value <= Math.ceil(injuryChance / 3) ? '外伤' : undefined }, '最后一天强行采购');
+    next.logs = [...next.logs, createLog(next, '高风险采购 · 空手返回', `店门口已经挤成一团。你在卷帘门落下前被推倒，判定 ${outcomeRoll.value}/${injuryChance}，只能护着空包回到避难所。`, 'bad')];
+    return completeTimedAction(next, 150, 'prep:risky-shopping');
+  }
+
+  const capacity = shoppingCarryCapacity(next);
+  let carriedWeight = 0;
+  const found: string[] = [];
+  const attempts = next.difficulty === 'easy' ? 4 : 3;
+  for (let index = 0; index < attempts; index += 1) {
+    const pick = seededPick(next.rngState, storeItems);
+    next.rngState = pick.state;
+    const item = pick.value;
+    if (carriedWeight + item.weight <= capacity && canAddWeight(next.inventory, item, 1, next.carryCapacity, ITEM_MAP)) {
+      next.inventory = addItem(next.inventory, item, 1, absoluteDay(next));
+      carriedWeight += item.weight;
+      found.push(item.name);
+    }
+  }
+  next.stats.stamina = clamp(next.stats.stamina - 14);
+  next.feedback = found.map((name, index) => ({ id: `${next.runId}-last-shop-${next.logs.length}-${index}`, label: name, delta: 1, reason: '无人看管的货架' }));
+  next.logs = [...next.logs, createLog(next, '高风险采购 · 无人收银', `收银台已经空了，警报和争吵声盖过一切。你没有付款，在 ${capacity}kg 随身负重内带回：${found.length ? found.join('、') : '没有能装下的物资'}。危险判定 ${outcomeRoll.value}/${injuryChance}，成功脱身。`, found.length ? 'good' : 'story')];
+  return completeTimedAction(next, 150, 'prep:risky-shopping');
+}
+
+export function purchaseDisabledReason(state: GameState, itemId: string, quantity = 1): string | null {
+  const item = ITEM_MAP[itemId];
+  if (!item?.store || state.phase !== 'prep') return '这件物品现在无法购买';
+  if (state.prepDay === 7) return '最后一天已经停止正常零售';
+  if (!state.shoppingTrip || state.shoppingTrip.store !== item.store || state.shoppingTrip.prepDay !== state.prepDay) return '需要先到达对应商店';
+  const stock = storeStock(state, item);
+  if (stock.remaining < quantity) return stock.remaining === 0 ? '今日已缺货' : `今日只剩 ${stock.remaining} 件`;
+  const total = item.price * quantity;
+  if (state.money < total) return `还差 ¥${total - state.money}`;
+  if (item.weight * quantity > shoppingCarryRemaining(state) + 0.0001) return `随身包剩余 ${shoppingCarryRemaining(state).toFixed(1)}kg`;
+  if (!canAddWeight(state.inventory, item, quantity, state.carryCapacity, ITEM_MAP)) return '避难所储物空间不够';
+  return null;
 }
 
 export function purchaseItem(state: GameState, itemId: string, quantity = 1): Result {
   const dailyReason = dailyActionBlockedReason(state);
   if (dailyReason) return { state, ok: false, message: dailyReason };
   const item = ITEM_MAP[itemId];
-  if (!item?.store || state.phase !== 'prep') return { state, ok: false, message: '这件物品现在无法购买。' };
+  const disabled = purchaseDisabledReason(state, itemId, quantity);
+  if (disabled) return { state, ok: false, message: disabled };
+  if (!item?.store || !state.shoppingTrip) return { state, ok: false, message: '这件物品现在无法购买。' };
   const total = item.price * quantity;
-  if (state.money < total) return { state, ok: false, message: `还差 ¥${total - state.money}` };
-  if (!canAddWeight(state.inventory, item, quantity, state.carryCapacity, ITEM_MAP)) return { state, ok: false, message: '储物空间不够。' };
   let next = structuredClone(state);
   next.money -= total;
   next.inventory = addItem(next.inventory, item, quantity, absoluteDay(next));
+  next.shoppingTrip!.carriedWeight += item.weight * quantity;
+  const purchaseKey = storePurchaseKey(next.prepDay, item.store, item.id);
+  next.storePurchases[purchaseKey] = (next.storePurchases[purchaseKey] ?? 0) + quantity;
   next.feedback = [
     { id: `${next.runId}-buy-money-${next.logs.length}`, label: '金钱', delta: -total, reason: `购买${item.name}` },
     { id: `${next.runId}-buy-item-${next.logs.length}`, label: item.name, delta: quantity, reason: '采购入库' },

@@ -82,6 +82,8 @@ test('v1 存档迁移为标准难度时钟制并保留进度', () => {
   delete legacy.autoRations;
   delete legacy.cookingAttempts;
   delete legacy.cookingSkill;
+  delete legacy.storePurchases;
+  delete legacy.shoppingTrip;
   storage.setItem(LEGACY_GAME_SAVE_KEY, JSON.stringify(legacy));
   const migrated = loadGame(storage);
   assert.equal(migrated?.version, 3);
@@ -93,6 +95,7 @@ test('v1 存档迁移为标准难度时钟制并保留进度', () => {
   assert.equal(migrated?.autoRations, false);
   assert.equal(migrated?.cookingAttempts, 0);
   assert.equal(migrated?.cookingSkill, 0);
+  assert.deepEqual(migrated?.storePurchases, {});
 });
 
 test('v2 存档迁移为 v3 每日愿望系统且保留当前局', () => {
@@ -107,6 +110,8 @@ test('v2 存档迁移为 v3 每日愿望系统且保留当前局', () => {
   delete version2.autoRations;
   delete version2.cookingAttempts;
   delete version2.cookingSkill;
+  delete version2.storePurchases;
+  delete version2.shoppingTrip;
   storage.setItem(PREVIOUS_GAME_SAVE_KEY, JSON.stringify(version2));
   const migrated = loadGame(storage);
   assert.equal(migrated?.version, 3);
@@ -118,6 +123,7 @@ test('v2 存档迁移为 v3 每日愿望系统且保留当前局', () => {
   assert.equal(migrated?.autoRations, true);
   assert.equal(migrated?.cookingAttempts, 0);
   assert.equal(migrated?.cookingSkill, 0);
+  assert.deepEqual(migrated?.storePurchases, {});
 });
 
 test('损坏的新键不会回退并复活旧存档', () => {
