@@ -1,5 +1,7 @@
 import { DAILY_WISH_MAP, wishesForPhase } from '../data/daily.ts';
-import type { DailyPlan, DailyWishId, GameState } from '../types.ts';
+import { commissionsForPhase } from '../data/commissions.ts';
+import type { DailyCommissionProgress, DailyPlan, DailyWishId, GameState } from '../types.ts';
+import { normalizeSeed } from './rng.ts';
 import { minutesRemaining } from './time.ts';
 
 export function wishDayKey(state: Pick<GameState, 'phase' | 'prepDay' | 'survivalDay'>): string {
@@ -35,11 +37,22 @@ export function createAssignedDailyPlan(state: GameState, forcedWishId?: DailyWi
   const selected = forcedWishId && DAILY_WISH_MAP[forcedWishId]?.phase === state.phase
     ? forcedWishId
     : assignedWishId(state);
+  const commissionPool = commissionsForPhase(state.phase);
+  const count = Math.min(state.difficulty === 'hard' ? 1 : 2, commissionPool.length);
+  const dayKey = wishDayKey(state);
+  const start = commissionPool.length ? normalizeSeed(`${state.seed}:${dayKey}:commissions`) % commissionPool.length : 0;
+  const commissions: DailyCommissionProgress[] = [];
+  for (let offset = 0; offset < commissionPool.length && commissions.length < count; offset += 1) {
+    const candidate = commissionPool[(start + offset) % commissionPool.length];
+    const duplicatesWish = candidate.matchingActions.some((action) => DAILY_WISH_MAP[selected].matchingActions.some((wishAction) => action === wishAction));
+    if (!duplicatesWish || commissionPool.length <= count) commissions.push({ id: candidate.id });
+  }
   return {
-    dayKey: wishDayKey(state),
+    dayKey,
     wishId: selected,
     // 保留 open 字段以兼容 v3 存档；新版规则不再要求玩家设置时限。
     deadlineId: 'open',
     actions: [],
+    commissions,
   };
 }

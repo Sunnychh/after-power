@@ -110,6 +110,7 @@ export function createInitialState(
       ...difficultyConfig.startingShelter,
     },
     powerPolicy: 'balanced',
+    powerTrap: { level: 0, armed: false },
     furniture: createFurnitureState(),
     inventory: {},
     carryCapacity: difficultyConfig.carryCapacity + (unlocked.includes('packer') ? 8 : 0),
@@ -118,6 +119,7 @@ export function createInitialState(
     broadcasts: 0,
     cookingAttempts: 0,
     cookingSkill: 0,
+    discoveredRecipes: [],
     foodBoredom: 0,
     recentMeals: [],
     explorationSkills: {

@@ -2,6 +2,7 @@ import {
   DAILY_REWARD_MAP,
   DAILY_WISH_MAP,
 } from '../data/daily.ts';
+import { DAILY_COMMISSION_MAP } from '../data/commissions.ts';
 import { wishPointsForDifficulty } from '../data/pressure.ts';
 import type {
   DailyRewardId,
@@ -46,19 +47,34 @@ function actionMatches(wishId: DailyWishId, actionId: string): boolean {
   ));
 }
 
+function matchesAny(patterns: string[], actionId: string): boolean {
+  return patterns.some((candidate) => candidate.endsWith(':') ? actionId.startsWith(candidate) : candidate === actionId);
+}
+
 export function recordDailyAction(state: GameState, actionId: string): GameState {
-  if (!state.dailyPlan || state.dailyPlan.completedAtMinutes !== undefined) return state;
+  if (!state.dailyPlan) return state;
   const next = structuredClone(state);
   next.dailyPlan!.actions.push(actionId);
-  if (!actionMatches(next.dailyPlan!.wishId, actionId)) return next;
-  next.dailyPlan!.completedAtMinutes = next.clockMinutes;
-  const wish = DAILY_WISH_MAP[next.dailyPlan!.wishId];
-  next.logs = [...next.logs, createLog(
-    next,
-    '今日愿望已达成',
-    `“${wish.name}”在 ${formatClock(next.clockMinutes)} 完成。愿望点会在今晚结算。`,
-    'good',
-  )];
+  if (next.dailyPlan!.completedAtMinutes === undefined && actionMatches(next.dailyPlan!.wishId, actionId)) {
+    next.dailyPlan!.completedAtMinutes = next.clockMinutes;
+    const wish = DAILY_WISH_MAP[next.dailyPlan!.wishId];
+    next.logs = [...next.logs, createLog(
+      next,
+      '今日愿望已达成',
+      `“${wish.name}”在 ${formatClock(next.clockMinutes)} 完成。愿望点会在今晚结算。`,
+      'good',
+    )];
+  }
+  for (const commission of next.dailyPlan!.commissions ?? []) {
+    if (commission.completedAtMinutes !== undefined) continue;
+    const definition = DAILY_COMMISSION_MAP[commission.id];
+    if (!definition || !matchesAny(definition.matchingActions, actionId)) continue;
+    commission.completedAtMinutes = next.clockMinutes;
+    commission.pointsAwarded = 1;
+    next.dailyPoints += 1;
+    next.feedback.push({ id: `${next.runId}-commission-${next.dailyPlan!.dayKey}-${commission.id}`, label: '愿望点', delta: 1, reason: definition.name });
+    next.logs.push(createLog(next, `每日委托完成 · ${definition.name}`, `你在 ${formatClock(next.clockMinutes)} 完成了额外委托，愿望点立即 +1。`, 'good'));
+  }
   return next;
 }
 
@@ -111,8 +127,9 @@ export function createDailySettlement(beforeNight: GameState, afterNight: GameSt
   const wishAchieved = plan.completedAtMinutes !== undefined;
   const basePoints = 0;
   const wishPoints = wishAchieved ? dailyWishRewardPoints(beforeNight) : 0;
+  const commissionPoints = (plan.commissions ?? []).reduce((sum, commission) => sum + (commission.pointsAwarded ?? 0), 0);
   const deadlinePoints = 0;
-  const earnedPoints = wishPoints;
+  const earnedPoints = wishPoints + commissionPoints;
   const settlement: DailySettlement = {
     id: `${beforeNight.runId}-${plan.dayKey}`,
     dayKey: plan.dayKey,
@@ -125,13 +142,14 @@ export function createDailySettlement(beforeNight: GameState, afterNight: GameSt
     deadlinePoints,
     basePoints,
     earnedPoints,
+    commissionPoints,
     completedAtMinutes: plan.completedAtMinutes,
     endedAtMinutes: beforeNight.clockMinutes,
     rewardChoices: rewardChoicesForDay(beforeNight),
     finalNight,
   };
   const next = structuredClone(afterNight);
-  next.dailyPoints += earnedPoints;
+  next.dailyPoints += wishPoints;
   next.dailyPlan = undefined;
   next.dailySettlement = settlement;
   // 日结信息由结算卡片与单条日志呈现，不再把点数写进持续反馈条，
@@ -141,8 +159,8 @@ export function createDailySettlement(beforeNight: GameState, afterNight: GameSt
     next,
     '每日愿望结算',
     wishAchieved
-      ? `愿望“${wish.name}”已经达成，本日获得 ${wishPoints} 愿望点。`
-      : `愿望“${wish.name}”今天未能完成：没有获得奖励，也没有任何损失。`,
+      ? `愿望“${wish.name}”已经达成，日结获得 ${wishPoints} 点；每日委托另已即时获得 ${commissionPoints} 点。`
+      : `愿望“${wish.name}”今天未能完成：没有获得奖励，也没有任何损失。每日委托已即时获得 ${commissionPoints} 点。`,
     wishAchieved ? 'good' : 'system',
   );
   log.dayLabel = settlement.dayLabel;

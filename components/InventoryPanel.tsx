@@ -11,6 +11,9 @@ import { POWER_POLICY_MAP } from '../game/data/power.ts';
 import { projectedPowerNights } from '../game/engine/power.ts';
 import { siegeMitigation } from '../game/engine/siege.ts';
 import { foodVarietyPreview } from '../game/engine/nutrition.ts';
+import { CLUES, isClueDiscovered } from '../game/data/clues.ts';
+import { RECIPES } from '../game/data/recipes.ts';
+import { powerTrapDefinition } from '../game/data/power-traps.ts';
 
 export function InventoryPanel({ state, open, onClose, onUse }: {
   state: GameState;
@@ -18,7 +21,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
   onClose: () => void;
   onUse: (itemId: string) => void;
 }) {
-  const [tab, setTab] = useState<'inventory' | 'shelter'>('inventory');
+  const [tab, setTab] = useState<'inventory' | 'shelter' | 'archive'>('inventory');
   const summary = inventorySummary(state);
   const currentDay = absoluteDay(state);
   const powerPolicy = POWER_POLICY_MAP[state.powerPolicy];
@@ -38,6 +41,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
       <div className="panel-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={tab === 'inventory'} onClick={() => setTab('inventory')}>物资</button>
         <button type="button" role="tab" aria-selected={tab === 'shelter'} onClick={() => setTab('shelter')}>避难所</button>
+        <button type="button" role="tab" aria-selected={tab === 'archive'} onClick={() => setTab('archive')}>档案</button>
       </div>
       {tab === 'inventory' ? (
         <div className="inventory-content">
@@ -81,7 +85,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             })}
           </div>
         </div>
-      ) : (
+      ) : tab === 'shelter' ? (
         <div className="shelter-content">
           <p className="panel-note">这间旧公寓不是堡垒。每一处改造都只是多争取一点时间。</p>
           <dl className="shelter-list">
@@ -92,6 +96,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             <div><dt>备用电力</dt><dd>{state.shelter.power} 单位</dd></div>
             <div><dt>燃料储备</dt><dd>{state.shelter.fuel} 单位</dd></div>
             <div><dt>供电改造</dt><dd>等级 {state.shelter.generator}</dd></div>
+            <div><dt>电力陷阱</dt><dd>{state.powerTrap.level ? `${powerTrapDefinition(state.powerTrap.level)?.name} · ${state.powerTrap.armed ? '已接通' : '已断开'}` : '未安装'}</dd></div>
             <div><dt>燃油发电机</dt><dd>{inventoryCount(state.inventory, 'fuel-generator') > 0 ? '已购置 · 3 燃料 / 5 电力' : '未购置 · 无法燃油发电'}</dd></div>
             <div><dt>夜间负载</dt><dd>{powerPolicy.name} · 约 {powerPolicy.expectedPower + alarmCost} 电/夜{alarmCost ? '（含警戒）' : ''}</dd></div>
             <div><dt>预计续航</dt><dd>{powerNights === null ? '已关闭供电' : `约 ${powerNights} 夜`}</dd></div>
@@ -120,6 +125,23 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             <span>夜间压力</span>
             <p>{state.shelter.integrity < 30 ? '结构已接近失守，优先修缮。' : state.shelter.power === 0 ? '完全停电会持续损耗精神。' : '当前尚能维持基本防护。'}</p>
           </div>
+        </div>
+      ) : (
+        <div className="archive-content">
+          <section className="archive-section">
+            <div className="archive-heading"><span className="section-kicker">CLUE ARCHIVE</span><h2>当前线索</h2><b>{CLUES.filter((clue) => isClueDiscovered(state, clue)).length}/{CLUES.length}</b></div>
+            <div className="archive-list">{CLUES.map((clue) => {
+              const discovered = isClueDiscovered(state, clue);
+              return <article key={clue.id} className={discovered ? 'discovered' : 'locked'}><header><strong>{discovered ? clue.name : '尚未确认的线索'}</strong>{clue.evidence && <span>证据</span>}</header><p>{discovered ? clue.description : `来源提示：${clue.source}`}</p><small>{discovered ? `来源：${clue.source}` : '继续广播、事件或地点探索以解锁'}</small></article>;
+            })}</div>
+          </section>
+          <section className="archive-section recipe-archive">
+            <div className="archive-heading"><span className="section-kicker">RECIPE NOTEBOOK</span><h2>配方图鉴</h2><b>{state.discoveredRecipes.length}/{RECIPES.length}</b></div>
+            <div className="archive-list">{RECIPES.map((recipe) => {
+              const discovered = state.discoveredRecipes.includes(recipe.id);
+              return <article key={recipe.id} className={discovered ? 'discovered' : 'locked'}><header><strong>{discovered ? recipe.name : '未发现配方'}</strong><span>{recipe.appliance === 'gas-stove' ? '燃气炉' : recipe.appliance === 'microwave' ? '微波炉' : '电火锅'}</span></header><p>{discovered ? Object.entries(recipe.ingredients).map(([itemId, quantity]) => `${ITEM_MAP[itemId]?.name ?? itemId} ×${quantity}`).join(' + ') : '用自选食材成功做出后，完整组合会记录在这里。'}</p>{discovered && <small>用水 {recipe.water} · 耗能 {recipe.energy} · {recipe.description}</small>}</article>;
+            })}</div>
+          </section>
         </div>
       )}
     </aside>

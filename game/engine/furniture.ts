@@ -50,7 +50,7 @@ export function availableCookingIngredients(state: GameState): ItemDefinition[] 
     .map((itemId) => ITEM_MAP[itemId])
     .filter((item): item is ItemDefinition => Boolean(
       item
-      && item.category === '食物'
+      && (item.category === '食物' || item.tags?.includes('cookable'))
       && !item.tags?.includes('cooked')
       && inventoryCount(state.inventory, item.id) > 0,
     ))
@@ -94,14 +94,26 @@ export function furnitureActionDisabledReason(state: GameState, action: Furnitur
   return null;
 }
 
+export function selectedCookingDisabledReason(state: GameState, action: FurnitureActionId, ingredientIds: string[]): string | null {
+  const base = furnitureActionDisabledReason(state, action);
+  if (base) return base;
+  if (!ingredientIds.length) return '至少选择一种食材';
+  if (new Set(ingredientIds).size !== ingredientIds.length) return '同一种食材每次最多投入一份';
+  const available = new Set(availableCookingIngredients(state).map((item) => item.id));
+  const unavailable = ingredientIds.find((itemId) => !available.has(itemId));
+  return unavailable ? `${ITEM_MAP[unavailable]?.name ?? unavailable} 当前不可投入` : null;
+}
+
 function cookingInventoryEffect(recipe: CookingRecipe, output: string): Record<string, number> {
   const inventory: Record<string, number> = { [output]: 1 };
   for (const [itemId, quantity] of Object.entries(recipe.ingredients)) inventory[itemId] = -quantity;
   return inventory;
 }
 
-export function performFurnitureAction(state: GameState, action: FurnitureActionId): EngineResult {
-  const disabled = furnitureActionDisabledReason(state, action);
+export function performFurnitureAction(state: GameState, action: FurnitureActionId, selectedIngredientIds?: string[]): EngineResult {
+  const disabled = selectedIngredientIds
+    ? selectedCookingDisabledReason(state, action, selectedIngredientIds)
+    : furnitureActionDisabledReason(state, action);
   if (disabled) return { state, ok: false, message: disabled };
 
   let next = structuredClone(state);
@@ -109,19 +121,28 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
   const completeRecipes = availableCookingRecipes(next, action);
   const richestIngredientCount = Math.max(0, ...completeRecipes.map((recipe) => Object.values(recipe.ingredients).reduce((sum, quantity) => sum + quantity, 0)));
   const preferredRecipes = completeRecipes.filter((recipe) => Object.values(recipe.ingredients).reduce((sum, quantity) => sum + quantity, 0) === richestIngredientCount);
-  const recipePick = preferredRecipes.length ? seededPick(next.rngState, preferredRecipes) : undefined;
+  const selected = selectedIngredientIds ? [...selectedIngredientIds].sort() : undefined;
+  const selectedRecipe = selected ? completeRecipes.find((candidate) => {
+    const required = Object.entries(candidate.ingredients).flatMap(([itemId, quantity]) => Array(quantity).fill(itemId)).sort();
+    return required.length === selected.length && required.every((itemId, index) => itemId === selected[index]);
+  }) : undefined;
+  const recipePick = !selected && preferredRecipes.length ? seededPick(next.rngState, preferredRecipes) : undefined;
   if (recipePick) next.rngState = recipePick.state;
-  const recipe = recipePick?.value;
-  const ingredientPick = !recipe ? seededPick(next.rngState, availableCookingIngredients(next)) : undefined;
+  const recipe = selectedRecipe ?? recipePick?.value;
+  const ingredientPick = !selected && !recipe ? seededPick(next.rngState, availableCookingIngredients(next)) : undefined;
   if (ingredientPick) next.rngState = ingredientPick.state;
-  const improvisedIngredient = ingredientPick?.value;
+  const improvisedIngredients = recipe
+    ? []
+    : selected
+      ? selected.map((itemId) => ITEM_MAP[itemId]).filter((item): item is ItemDefinition => Boolean(item))
+      : ingredientPick?.value ? [ingredientPick.value] : [];
   const roll = randomInt(next.rngState, 1, 100);
   next.rngState = roll.state;
-  const chance = recipe ? cookingSuccessChance(next) : clamp(cookingSuccessChance(next) - 22, 20, 74);
+  const chance = recipe ? cookingSuccessChance(next) : clamp(cookingSuccessChance(next) - 22 + Math.max(0, improvisedIngredients.length - 1) * 3, 20, 80);
   const success = roll.value <= chance;
   const useStoredWater = Boolean(recipe && recipe.water > 0 && next.shelter.water >= recipe.water);
   const waterBottles = recipe && !useStoredWater ? bottledWaterCost(recipe) : 0;
-  const improvisedDumplings = improvisedIngredient?.id === 'frozen-dumplings';
+  const improvisedDumplings = improvisedIngredients.length === 1 && improvisedIngredients[0]?.id === 'frozen-dumplings';
   const output = recipe
     ? success ? recipe.output : 'scorched-meal'
     : success ? improvisedDumplings ? 'dish-dry-dumplings' : 'dish-improvised-meal'
@@ -130,7 +151,7 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
   const energy = recipe?.energy ?? IMPROVISED_ENERGY[action];
   const inventoryEffect = recipe
     ? cookingInventoryEffect(recipe, output)
-    : { [output]: 1, [improvisedIngredient!.id]: -1 };
+    : { [output]: 1, ...Object.fromEntries(improvisedIngredients.map((ingredient) => [ingredient.id, -1])) };
 
   next = applyEffect(next, {
     inventory: {
@@ -151,19 +172,24 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
     next.feedback.push({ id: `${next.runId}-cooking-skill-${next.logs.length}`, label: '料理技能', delta: 1, reason: `累计尝试 ${next.cookingAttempts} 次` });
   }
   next.furniture[action].lastUsedDay = absoluteDay(next);
+  if (recipe && success && !next.discoveredRecipes.includes(recipe.id)) {
+    next.discoveredRecipes.push(recipe.id);
+    next.feedback.push({ id: `${next.runId}-recipe-${recipe.id}`, label: '新配方', delta: 1, reason: recipe.name });
+  }
 
   const applianceName = action === 'gas-stove' ? '燃气炉' : action === 'microwave' ? '微波炉' : '电火锅';
   const waterText = !recipe ? '没有凑齐完整配方，也没有强制补水' : recipe.water === 0 ? '这道料理不需要额外用水' : useStoredWater ? `使用储水 ${recipe.water}` : `使用瓶装水 ×${waterBottles}`;
   const skillText = next.cookingSkill > previousSkill ? `反复尝试让你的料理技能提升到 ${next.cookingSkill} 级。` : '';
-  const cookingName = recipe ? recipe.name : `${improvisedIngredient!.name} · 即兴处理`;
-  const cookingDescription = recipe?.description ?? `你只投入了${improvisedIngredient!.name}，仍然决定开火试试。`;
+  const ingredientNames = improvisedIngredients.map((ingredient) => ingredient.name).join('、');
+  const cookingName = recipe ? recipe.name : `${ingredientNames} · 即兴处理`;
+  const cookingDescription = recipe?.description ?? `你把${ingredientNames}放在一起，没有现成配方，也决定照自己的判断开火。`;
   const resultText = success
     ? `完成${ITEM_MAP[output].name}，成品已放入背包，可自行决定何时食用。`
     : improvisedDumplings ? '锅里没有水，水饺很快粘底裂开，只得到一份糊底水饺。' : '搭配和火候都不理想，只得到一份勉强能吃的失败料理。';
   next.logs = [...next.logs, createLog(
     next,
     `${applianceName} · ${success ? cookingName : '料理失手'}`,
-    `${cookingDescription}${waterText}。${recipe ? '配方' : '即兴'}成功判定 ${roll.value}/${chance}：${resultText}当前料理技能 ${next.cookingSkill} 级，累计尝试 ${next.cookingAttempts} 次。${skillText}`,
+    `${cookingDescription}${waterText}。${recipe ? '配方' : '即兴'}成功判定 ${roll.value}/${chance}：${resultText}${recipe && success ? `“${recipe.name}”已写入配方图鉴。` : ''}当前料理技能 ${next.cookingSkill} 级，累计尝试 ${next.cookingAttempts} 次。${skillText}`,
     success ? 'good' : 'bad',
   )];
   return completeTimedAction(next, FURNITURE_ACTION_MINUTES[action], `furniture:${action}`);

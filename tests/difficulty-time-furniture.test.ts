@@ -163,7 +163,7 @@ test('储水可以主动饮用，料理池至少包含十二种不同组合', ()
   const drank = performSurvivalAction(state, 'drink-storage');
   assert.equal(drank.ok, true);
   assert.equal(drank.state.shelter.water, 4);
-  assert.equal(drank.state.stats.hydration, 66);
+  assert.equal(drank.state.stats.hydration, 68);
   assert.ok(RECIPES.length >= 12);
   assert.ok(ITEMS.length >= 65);
   for (const appliance of ['gas-stove', 'microwave', 'electric-hotpot'] as const) {
@@ -174,6 +174,25 @@ test('储水可以主动饮用，料理池至少包含十二种不同组合', ()
     for (const ingredient of Object.keys(recipe.ingredients)) assert.ok(ITEM_MAP[ingredient], `${recipe.id} 缺少食材 ${ingredient}`);
   }
   assert.equal(availableCookingRecipes(state, 'gas-stove').length, 0);
+});
+
+test('储水不足四单位时仍可逐单位取用，自动配给也不会留下尾水', () => {
+  const manual = survivalState('water-tail-manual', 'normal');
+  manual.shelter.water = 2;
+  manual.stats.hydration = 45;
+  const drank = performSurvivalAction(manual, 'drink-storage');
+  assert.equal(drank.ok, true);
+  assert.equal(drank.state.shelter.water, 0);
+  assert.equal(drank.state.stats.hydration, 59);
+
+  const automatic = survivalState('water-tail-auto', 'easy');
+  automatic.autoRations = true;
+  automatic.shelter.water = 3;
+  automatic.stats.hydration = 30;
+  automatic.inventory = {};
+  const settled = endDay(automatic).state;
+  assert.equal(settled.shelter.water, 0);
+  assert.ok(settled.logs.some((log) => log.body.includes('水箱储水 3 单位')));
 });
 
 test('相同种子与库存得到相同的随机料理结果', () => {
@@ -190,6 +209,28 @@ test('相同种子与库存得到相同的随机料理结果', () => {
   assert.deepEqual(performFurnitureAction(prepare(), 'microwave'), performFurnitureAction(prepare(), 'microwave'));
 });
 
+test('玩家自选食材只消耗所选组合，成功后把配方写入图鉴', () => {
+  let successful = false;
+  for (let index = 0; index < 40 && !successful; index += 1) {
+    const state = survivalState(`selected-recipe-${index}`, 'easy');
+    state.cookingSkill = 5;
+    state.shelter.power = 10;
+    state.shelter.water = 10;
+    state.inventory = addItem({}, ITEM_MAP.oats, 1, 8);
+    state.inventory = addItem(state.inventory, ITEM_MAP['milk-powder'], 1, 8);
+    state.inventory = addItem(state.inventory, ITEM_MAP['canned-beans'], 1, 8);
+    const result = performFurnitureAction(state, 'microwave', ['oats', 'milk-powder']);
+    if (result.state.discoveredRecipes.includes('milk-oatmeal')) {
+      successful = true;
+      assert.equal(inventoryCount(result.state.inventory, 'oats'), 0);
+      assert.equal(inventoryCount(result.state.inventory, 'milk-powder'), 0);
+      assert.equal(inventoryCount(result.state.inventory, 'canned-beans'), 1);
+      assert.equal(inventoryCount(result.state.inventory, 'dish-milk-oatmeal'), 1);
+    }
+  }
+  assert.equal(successful, true);
+});
+
 test('不完整食材不会锁住厨具，任何未烹饪食物都能尝试即兴料理', () => {
   const state = survivalState('improvise-any-food', 'normal');
   state.shelter.power = 6;
@@ -201,7 +242,7 @@ test('不完整食材不会锁住厨具，任何未烹饪食物都能尝试即�
   assert.equal(result.ok, true);
   assert.equal(inventoryCount(result.state.inventory, 'canned-beans'), 0);
   assert.equal(inventoryCount(result.state.inventory, 'dish-improvised-meal') + inventoryCount(result.state.inventory, 'scorched-meal'), 1);
-  assert.ok(result.state.logs.at(-2)?.body.includes('即兴成功判定') || result.state.logs.at(-1)?.body.includes('即兴成功判定'));
+  assert.ok(result.state.logs.some((log) => log.body.includes('即兴成功判定')));
 });
 
 test('速冻水饺加一瓶水可成为清水煮饺子，缺水也能开火并得到对应成品', () => {

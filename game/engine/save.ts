@@ -4,6 +4,7 @@ import { ITEM_MAP } from '../data/items.ts';
 import type { GameState, MetaState, Outcome, SettingsState, StorageLike } from '../types.ts';
 import { expireItems } from './inventory.ts';
 import { ensureAssignedDailyWish } from './daily.ts';
+import { createAssignedDailyPlan } from './wish-plan.ts';
 import {
   absoluteDay,
   DEFAULT_META,
@@ -86,9 +87,13 @@ function removeStaleBatches(state: GameState): GameState {
   const next = structuredClone(state);
   if (typeof next.autoRations !== 'boolean') next.autoRations = next.difficulty === 'easy';
   if (!['balanced', 'cold', 'light', 'off'].includes(next.powerPolicy)) next.powerPolicy = 'balanced';
+  if (!next.powerTrap || !Number.isFinite(next.powerTrap.level)) next.powerTrap = { level: 0, armed: false };
+  next.powerTrap = { level: Math.min(3, Math.max(0, next.powerTrap.level)), armed: Boolean(next.powerTrap.armed && next.powerTrap.level > 0) };
   next.shelter.generator = Math.min(3, Math.max(0, Number.isFinite(next.shelter.generator) ? next.shelter.generator : 0));
   if (!Number.isFinite(next.cookingAttempts)) next.cookingAttempts = 0;
   if (!Number.isFinite(next.cookingSkill)) next.cookingSkill = Math.min(5, Math.floor(next.cookingAttempts / 3));
+  if (!Array.isArray(next.discoveredRecipes)) next.discoveredRecipes = [];
+  next.discoveredRecipes = [...new Set(next.discoveredRecipes.filter((recipeId) => typeof recipeId === 'string'))];
   if (!Number.isFinite(next.foodBoredom)) next.foodBoredom = 0;
   next.foodBoredom = Math.min(100, Math.max(0, next.foodBoredom));
   if (!Array.isArray(next.recentMeals)) next.recentMeals = [];
@@ -177,6 +182,9 @@ function removeStaleBatches(state: GameState): GameState {
     if (next.dailySettlement) next.dailyPlan = undefined;
     if (next.phase !== 'prep') next.shoppingTrip = undefined;
     if (next.phase !== 'survival') next.expedition = undefined;
+  }
+  if (next.dailyPlan && !Array.isArray(next.dailyPlan.commissions)) {
+    next.dailyPlan.commissions = createAssignedDailyPlan(next, next.dailyPlan.wishId).commissions;
   }
   if (!next.expedition) delete next.expedition;
   return ensureAssignedDailyWish(next);

@@ -4,6 +4,11 @@ export type DifficultyId = 'easy' | 'normal' | 'hard';
 export type LoanTier = 'none' | 'bridge' | 'desperate';
 export type PowerPolicy = 'balanced' | 'cold' | 'light' | 'off';
 
+export interface PowerTrapState {
+  level: number;
+  armed: boolean;
+}
+
 export type StatKey = 'satiety' | 'hydration' | 'health' | 'morale' | 'stamina';
 export type ShelterKey = 'integrity' | 'water' | 'power' | 'fuel' | 'reinforcement' | 'storage' | 'generator';
 
@@ -195,6 +200,13 @@ export interface Outcome {
 export type DailyWishId = 'prep-income' | 'prep-home' | 'prep-contact' | 'survival-explore' | 'survival-care' | 'survival-secure';
 export type DailyDeadlineId = 'early' | 'steady' | 'open';
 export type DailyRewardId = 'quiet-rest' | 'water-cache' | 'food-cache' | 'repair-kit' | 'charge-pack' | 'first-aid';
+export type DailyCommissionId = 'earn-cash' | 'visit-store' | 'gather-intel' | 'restore-self' | 'make-meal' | 'check-radio' | 'return-expedition' | 'maintain-shelter' | 'contact-survivor';
+
+export interface DailyCommissionProgress {
+  id: DailyCommissionId;
+  completedAtMinutes?: number;
+  pointsAwarded?: number;
+}
 
 export interface DailyPlan {
   dayKey: string;
@@ -202,6 +214,7 @@ export interface DailyPlan {
   deadlineId?: DailyDeadlineId;
   completedAtMinutes?: number;
   actions: string[];
+  commissions?: DailyCommissionProgress[];
 }
 
 export interface DailySettlement {
@@ -216,6 +229,7 @@ export interface DailySettlement {
   deadlinePoints: number;
   basePoints: number;
   earnedPoints: number;
+  commissionPoints?: number;
   completedAtMinutes?: number;
   endedAtMinutes: number;
   rewardChoices: DailyRewardId[];
@@ -238,6 +252,7 @@ export interface GameState {
   stats: CoreStats;
   shelter: ShelterState;
   powerPolicy: PowerPolicy;
+  powerTrap: PowerTrapState;
   furniture: FurnitureState;
   inventory: Inventory;
   carryCapacity: number;
@@ -246,6 +261,7 @@ export interface GameState {
   broadcasts: number;
   cookingAttempts: number;
   cookingSkill: number;
+  discoveredRecipes: string[];
   foodBoredom: number;
   recentMeals: string[];
   explorationSkills: ExplorationSkills;

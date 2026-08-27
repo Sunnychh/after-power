@@ -19,6 +19,7 @@ export function entertainmentDisabledReason(state: GameState, id: EntertainmentI
   const timed = timeDisabledReason(state, activity.minutes);
   if (timed) return timed;
   if (state.flags.includes(entertainmentFlag(state, id))) return '今天已经进行过这项娱乐；换一种活动吧';
+  if (state.stats.stamina <= activity.stamina) return `体力不足（需要高于 ${activity.stamina}）`;
   if (activity.requiredItem && inventoryCount(state.inventory, activity.requiredItem) < 1) return `缺少${ITEM_MAP[activity.requiredItem]?.name ?? activity.requiredItem}`;
   if (id === 'music' && state.shelter.power < 1 && inventoryCount(state.inventory, 'batteries') < 1) return '需要 1 点电力或电池组 ×1';
   return null;
@@ -31,12 +32,12 @@ export function performEntertainment(state: GameState, id: EntertainmentId): Eng
   let next = structuredClone(state);
   const energyText = id !== 'music' ? '' : next.shelter.power >= 1 ? '备用电力 -1。' : '电池组 -1。';
   next = applyEffect(next, {
-    stats: { morale: activity.morale },
+    stats: { morale: activity.morale, stamina: -activity.stamina },
     ...(id === 'music'
       ? next.shelter.power >= 1 ? { shelter: { power: -1 } } : { inventory: { batteries: -1 } }
       : {}),
     addFlags: [entertainmentFlag(next, id)],
   }, activity.name);
-  next.logs.push(createLog(next, activity.name, `${activity.description}${energyText} 精神 +${activity.morale}；同一娱乐今天不能重复获得收益。`, 'good'));
+  next.logs.push(createLog(next, activity.name, `${activity.description}${energyText} 体力 -${activity.stamina}、精神 +${activity.morale}；同一娱乐今天不能重复获得收益。`, 'good'));
   return completeTimedAction(next, activity.minutes, `survival:entertainment:${id}`);
 }

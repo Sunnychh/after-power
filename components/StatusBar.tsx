@@ -6,6 +6,7 @@ import { dayLabel } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock } from '../game/engine/time.ts';
 import { POWER_POLICY_MAP } from '../game/data/power.ts';
 import { survivalPressure } from '../game/data/pressure.ts';
+import { powerTrapDefinition } from '../game/data/power-traps.ts';
 
 const STATS: Array<{ key: StatKey; label: string }> = [
   { key: 'health', label: '健康' },
@@ -70,6 +71,7 @@ export function StatusDock({ state }: { state: GameState }) {
   const alarmCost = state.phase === 'survival' && state.difficulty === 'hard' && state.survivalDay >= 8 ? 1 : 0;
   const expectedPower = powerPolicy.expectedPower + alarmCost;
   const moraleDrain = survivalPressure(state.difficulty, Math.max(1, state.survivalDay)).moraleDrain;
+  const trap = powerTrapDefinition(state.powerTrap.level);
   return (
     <aside className="status-dock" aria-label="核心状态">
       <header>
@@ -83,9 +85,13 @@ export function StatusDock({ state }: { state: GameState }) {
         {STATS.map(({ key, label }) => <StatCell key={key} label={label} value={state.stats[key]} />)}
         <StatCell label="完整度" value={state.shelter.integrity} />
         <BoredomCell value={state.foodBoredom} />
-        <div className="stat-cell resource-cell" aria-label={`电力 ${state.shelter.power}，${powerPolicy.name}，燃料 ${state.shelter.fuel}，愿望点 ${state.dailyPoints}，夜间配给${state.autoRations ? '自动' : '手动'}`}>
+        <div className="stat-cell resource-cell" aria-label={`电力 ${state.shelter.power}，${powerPolicy.name}，夜间预计消耗 ${expectedPower}`}>
           <div className="stat-heading"><span>供能</span><b>{state.shelter.power}</b></div>
-          <span className="resource-detail">电 {state.shelter.power} · {powerPolicy.name}（夜耗约 {expectedPower}{alarmCost ? '，含警戒' : ''}）· 燃 {state.shelter.fuel} · 愿望点 {state.dailyPoints} · 配给 {state.autoRations ? '自动' : '手动'}</span>
+          <span className="resource-detail">{powerPolicy.name} · 夜耗约 {expectedPower}{trap ? ` · 陷阱${state.powerTrap.armed ? '接通' : '断开'}` : ''}</span>
+        </div>
+        <div className="stat-cell resource-cell" aria-label={`储水 ${state.shelter.water}，燃料 ${state.shelter.fuel}，愿望点 ${state.dailyPoints}`}>
+          <div className="stat-heading"><span>储备</span><b>{state.shelter.water}</b></div>
+          <span className="resource-detail">水 {state.shelter.water} · 燃 {state.shelter.fuel} · 愿望 {state.dailyPoints} · {state.autoRations ? '自动配给' : '手动配给'}</span>
         </div>
       </div>
     </aside>

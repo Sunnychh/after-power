@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ITEM_MAP } from '../game/data/items.ts';
 import { endDay, performPrepAction } from '../game/engine/actions.ts';
-import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyRewardDescription, ensureAssignedDailyWish } from '../game/engine/daily.ts';
+import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyRewardDescription, ensureAssignedDailyWish, recordDailyAction } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { createInitialState } from '../game/engine/state.ts';
 import { PREP_DAY_START } from '../game/engine/time.ts';
@@ -25,6 +25,21 @@ test('开局直接指定一项当天可完成的愿望，不要求额外选择�
   state.dailyPlan = undefined;
   const reassigned = ensureAssignedDailyWish(state);
   assert.notEqual(reassigned.dailyPlan?.wishId, 'prep-home');
+});
+
+test('每日委托按难度发布，完成后即时且仅一次增加愿望点', () => {
+  const normal = createInitialState('commission-normal', [], 0, 'normal');
+  const hard = createInitialState('commission-hard', [], 0, 'hard');
+  assert.equal(normal.dailyPlan?.commissions?.length, 2);
+  assert.equal(hard.dailyPlan?.commissions?.length, 1);
+
+  normal.dailyPlan!.commissions = [{ id: 'visit-store' }];
+  const completed = recordDailyAction(normal, 'prep:visit-store');
+  assert.equal(completed.dailyPoints, 1);
+  assert.ok(completed.dailyPlan?.commissions?.[0].completedAtMinutes !== undefined);
+  assert.equal(completed.feedback.filter((item) => item.reason === '核对一处货源').length, 1);
+  const repeated = recordDailyAction(completed, 'prep:visit-store');
+  assert.equal(repeated.dailyPoints, 1);
 });
 
 test('愿望首次达成后日终只发愿望奖励，不再固定发放每日 +1', () => {
@@ -91,7 +106,7 @@ test('达成后可以选奖励；点数不足时状态完全不变', () => {
   assert.equal(rewarded.state.dailyPlan?.dayKey, 'prep:2');
 });
 
-test('标准与艰难每天只得一点且可保留，物资奖励不再单日覆盖整晚消耗', () => {
+test('标准与艰难的主愿望每天只得一点且可保留，物资奖励不再单日覆盖整晚消耗', () => {
   const state = plannedPrep('prep-income');
   const settled = endDay(performPrepAction(state, 'work').state).state;
   assert.equal(settled.dailyPoints, 1);

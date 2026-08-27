@@ -30,6 +30,9 @@ test('旧存档缺少供电策略或含旧式高等级时会安全折算', () =>
   delete legacyShape.powerPolicy;
   delete legacyShape.foodBoredom;
   delete legacyShape.recentMeals;
+  delete legacyShape.powerTrap;
+  delete legacyShape.discoveredRecipes;
+  if (legacyShape.dailyPlan && typeof legacyShape.dailyPlan === 'object') delete (legacyShape.dailyPlan as Record<string, unknown>).commissions;
   storage.setItem(GAME_SAVE_KEY, JSON.stringify(legacyShape));
   const restored = loadGame(storage)!;
   assert.equal(restored.powerPolicy, 'balanced');
@@ -37,6 +40,9 @@ test('旧存档缺少供电策略或含旧式高等级时会安全折算', () =>
   assert.equal(restored.shelter.power, 31);
   assert.equal(restored.foodBoredom, 0);
   assert.deepEqual(restored.recentMeals, []);
+  assert.deepEqual(restored.powerTrap, { level: 0, armed: false });
+  assert.deepEqual(restored.discoveredRecipes, []);
+  assert.ok((restored.dailyPlan?.commissions?.length ?? 0) > 0);
 });
 
 test('存档可恢复贷款余额、还款与催收进度', () => {

@@ -362,9 +362,10 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     title = '处理雨水'; body = '水先经过滤布，再静置消毒。你分装成两只干净水瓶。';
     next = applyEffect(next, { inventory: { 'purifier-tablet': -1, 'filter-cloth': -1, 'water-bottle': 2 }, shelter: { water: -6 } }, title);
   } else if (action === 'drink-storage') {
-    if (next.shelter.water < 4) return { state, ok: false, message: '储水装置至少需要 4 单位可用水。' };
-    title = '从储水装置取水'; body = '你打开标有日期的水阀，只接出一杯当天需要的量，然后重新检查密封。';
-    next = applyEffect(next, { shelter: { water: -4 }, stats: { hydration: 26, morale: 1 } }, title);
+    if (next.shelter.water < 1) return { state, ok: false, message: '储水装置已经空了。' };
+    const waterUsed = Math.min(4, next.shelter.water, Math.max(1, Math.ceil((100 - next.stats.hydration) / 7)));
+    title = '从储水装置取水'; body = `你按需要接出 ${waterUsed} 单位水，重新关紧阀门。储水 -${waterUsed}、水分 +${waterUsed * 7}；不足四单位时也不会留下无法使用的尾水。`;
+    next = applyEffect(next, { shelter: { water: -waterUsed }, stats: { hydration: waterUsed * 7, morale: waterUsed >= 3 ? 1 : 0 } }, title);
   } else if (action === 'truth') {
     if (!truthEndingReady(next)) return { state, ok: false, message: '证据、人脉或广播条件尚未满足。' };
     title = '向封锁线外发送证据';

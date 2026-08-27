@@ -159,8 +159,8 @@ export default function GameApp() {
           <div className="guide-grid">
             <section><b>01</b><h3>难度与借贷</h3><p>简易难度物资更多、危险更低。借贷能增加开局现金，但封锁后仍会到期、催收并提高危险，请把还款算进采购预算。</p></section>
             <section><b>02</b><h3>时间与休息</h3><p>行动会推进页面中的游戏时钟，到达日终自动结算。白天休息两小时也能恢复体力，不再受固定行动点限制。</p></section>
-            <section><b>03</b><h3>物资与家具</h3><p>物资会列明分类和状态点数。冰箱、燃气炉、微波炉与电火锅属于自带家具，可保鲜或制作热食。</p></section>
-            <section><b>04</b><h3>愿望与结局</h3><p>每天会直接指定一项可完成的愿望。达成后夜间挑选奖励，未达成没有惩罚。最后一天由你选择普通撤离或已建立的证据路线。</p></section>
+            <section><b>03</b><h3>物资、料理与档案</h3><p>物资会列明分类和状态点数。厨具允许自选食材，成功料理会记录配方；左侧“档案”可查线索和配方。</p></section>
+            <section><b>04</b><h3>愿望、委托与结局</h3><p>愿望达成后在夜间结算，额外的每日委托完成即加点；两者都没有失败惩罚。最后一天由你选择撤离路线。</p></section>
           </div>
         </Modal>
       )}
@@ -172,7 +172,7 @@ export default function GameApp() {
             <label><span><strong>数字键快捷操作</strong><small>按 1—9 选择底部对应选项</small></span><input type="checkbox" checked={settings.shortcuts} onChange={(event) => updateSettings({ shortcuts: event.target.checked })} /></label>
             <label><span><strong>减少动画</strong><small>关闭闪烁、过渡和脉冲效果</small></span><input type="checkbox" checked={settings.reducedMotion} onChange={(event) => updateSettings({ reducedMotion: event.target.checked })} /></label>
             <label><span><strong>高对比度</strong><small>加强边界与文字对比</small></span><input type="checkbox" checked={settings.highContrast} onChange={(event) => updateSettings({ highContrast: event.target.checked })} /></label>
-            <label><span><strong>显示新手提示</strong><small>新开一轮时显示四条简短提示</small></span><input type="checkbox" checked={settings.tutorial} onChange={(event) => updateSettings({ tutorial: event.target.checked })} /></label>
+            <label><span><strong>显示新手提示</strong><small>新开一轮时显示系列玩法提示</small></span><input type="checkbox" checked={settings.tutorial} onChange={(event) => updateSettings({ tutorial: event.target.checked })} /></label>
             <label className="select-setting"><span><strong>正文字号</strong><small>只影响游戏正文与记录</small></span><select value={settings.fontScale} onChange={(event) => updateSettings({ fontScale: event.target.value as SettingsState['fontScale'] })}><option value="small">紧凑</option><option value="normal">标准</option><option value="large">较大</option></select></label>
           </div>
         </Modal>

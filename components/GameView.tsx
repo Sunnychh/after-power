@@ -3,13 +3,16 @@
 import { useState } from 'react';
 import { DIFFICULTY_MAP } from '../game/data/difficulties.ts';
 import { DAILY_REWARD_MAP, DAILY_WISH_MAP } from '../game/data/daily.ts';
+import { DAILY_COMMISSION_MAP } from '../game/data/commissions.ts';
 import { ENTERTAINMENT, type EntertainmentId } from '../game/data/entertainment.ts';
 import { EVENT_MAP } from '../game/data/events.ts';
-import { formatItemEffects, STORE_DESCRIPTIONS, STORE_NAMES } from '../game/data/items.ts';
+import { formatItemEffects, ITEM_MAP, STORE_DESCRIPTIONS, STORE_NAMES } from '../game/data/items.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { LOAN_MAP } from '../game/data/loans.ts';
 import { DEEP_LOCATIONS, deepScene } from '../game/data/deep-exploration.ts';
 import { POWER_POLICIES } from '../game/data/power.ts';
+import { powerTrapDefinition } from '../game/data/power-traps.ts';
+import { RECIPES_BY_APPLIANCE } from '../game/data/recipes.ts';
 import { activeContactLimit, survivalPressure } from '../game/data/pressure.ts';
 import {
   availableStoreItems,
@@ -29,18 +32,19 @@ import {
   visitStore,
   type PrepActionId,
 } from '../game/engine/actions.ts';
-import { cookingPreview, FURNITURE_ACTION_MINUTES, furnitureActionDisabledReason, performFurnitureAction, type FurnitureActionId } from '../game/engine/furniture.ts';
+import { availableCookingIngredients, cookingPreview, FURNITURE_ACTION_MINUTES, furnitureActionDisabledReason, performFurnitureAction, selectedCookingDisabledReason, type FurnitureActionId } from '../game/engine/furniture.ts';
 import { inventoryCount } from '../game/engine/inventory.ts';
 import { isNpcUnlocked } from '../game/engine/npcs.ts';
 import { debtRiskBonus } from '../game/engine/loan.ts';
-import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyRewardCost, dailyRewardDescription, dailyWishProgress, dailyWishRewardPoints } from '../game/engine/daily.ts';
+import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyRewardCost, dailyRewardDescription, dailyWishRewardPoints } from '../game/engine/daily.ts';
 import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
 import { dangerRisk } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
 import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
 import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, deepTargetRefreshMode, EXPLORATION_SKILL_LABELS, hardDeepLootRetention, isDeepTargetResolved, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
-import { nextSiegeWave, siegeDamage, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
+import { nextSiegeWave, siegeAttack, siegeDamage, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
+import { nextPowerTrap, powerTrapUpgradeDisabledReason, setPowerTrapArmed, upgradePowerTrap } from '../game/engine/power-traps.ts';
 import { dailyTradeOffers, executeTrade, tradeItemsText, tradeOfferDisabledReason, TRADE_MINUTES } from '../game/engine/trades.ts';
 import { activeContactDisabledReason, contactCostText, contactOptions, contactsRemainingToday, npcAllianceFlag, performActiveContact } from '../game/engine/contacts.ts';
 import { entertainmentDisabledReason, performEntertainment } from '../game/engine/entertainment.ts';
@@ -59,6 +63,9 @@ const TUTORIAL = [
   { title: '每件物资都标保存期', body: '易腐物会按入库批次显示“剩余 N 天”或“今天到期”，其他物资会标为长期保存；冰箱会逐批延长仍有效的保质期。' },
   { title: '精神每天都会下降', body: '封锁后的夜间压力每天都会降低精神，艰难后期下降更多。可在“家具、烹饪与制作 → 娱乐与放松”中写日记、阅读、摆纸牌或听音乐；同一活动每天只能获得一次收益。' },
   { title: '每天一个明确愿望', body: '系统每天直接给出一件当天能完成的事。达成后夜间领取奖励；没有完成也不会扣除任何状态或点数。' },
+  { title: '每日委托也能获得点数', body: '右侧“今日”页会发布一至两项额外委托。完成时愿望点立即入账且只发一次，不必等到夜间。' },
+  { title: '线索与配方都归档', body: '打开左侧物资抽屉的“档案”页，可以查看已经确认的线索、尚未发现的来源提示，以及成功做出过的料理配方。' },
+  { title: '困难模式可以主动反击', body: '在“供电与夜间负载”中安装并接通电力陷阱。尸潮到来时会先耗电抵消冲击，再计算加固吸收；电力不足不会生效。' },
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
   { title: '越早采购越稳妥', body: '第一天商店货最全，此后会逐日限购和缺货。每次出门还有随身负重上限；第七天闯商店可能受伤，也可能在无人收银时带回一包物资。' },
   { title: '所有地点都能逐区深入', body: '封锁后六处地点都有各自的内部区域、现场目标和多种处理方法。工具、技能、情报与已发现路线会解锁不同解法；随时可以返回入口撤离，系统会预留返程时间。' },
@@ -86,6 +93,9 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const [drawer, setDrawer] = useState(false);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [briefTab, setBriefTab] = useState<'today' | 'skills' | 'people'>('today');
+  const [cookingAppliance, setCookingAppliance] = useState<FurnitureActionId | null>(null);
+  const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
   const event = state.currentEventId ? EVENT_MAP[state.currentEventId] : undefined;
   const difficultyConfig = DIFFICULTY_MAP[state.difficulty];
   const activeWish = state.dailyPlan ? DAILY_WISH_MAP[state.dailyPlan.wishId] : undefined;
@@ -101,6 +111,8 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       setMode('main');
       setSelectedTargetId(null);
       setSelectedContactId(null);
+      setCookingAppliance(null);
+      setSelectedIngredients([]);
     }
     return ok;
   };
@@ -311,15 +323,15 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           label,
           hint: `${formatDuration(FURNITURE_ACTION_MINUTES[id])} · 完整配方 ${preview.recipes} 种 / 可投入食材 ${preview.ingredients} 种 · 配方 ${preview.chance}% / 即兴 ${preview.improvisationChance}% · 缺配料也能开火`,
           disabledReason: furnitureActionDisabledReason(state, id),
-          onSelect: () => run(performFurnitureAction(state, id)),
+          onSelect: () => { setCookingAppliance(id); setSelectedIngredients([]); },
         };
       };
       return [
-        furnitureChoice('gas-stove', '燃气炉 · 随机料理'),
-        furnitureChoice('microwave', '微波炉 · 随机料理'),
-        furnitureChoice('electric-hotpot', '电火锅 · 随机料理'),
+        furnitureChoice('gas-stove', '燃气炉 · 自选食材料理'),
+        furnitureChoice('microwave', '微波炉 · 自选食材料理'),
+        furnitureChoice('electric-hotpot', '电火锅 · 自选食材料理'),
         { id: 'entertainment', label: '娱乐与放松', hint: `今夜精神将自然 -${pressure.moraleDrain} · 安排日记、阅读、纸牌或音乐`, onSelect: () => setMode('entertainment') },
-        { id: 'drink-storage', label: '从储水装置取水', hint: '20分钟 · 储水 -4 · 水分 +26', disabledReason: timedReason(state, 20) ?? (state.shelter.water < 4 ? '储水不足 4' : null), onSelect: () => run(performSurvivalAction(state, 'drink-storage')) },
+        { id: 'drink-storage', label: '从储水装置按量取水', hint: `20分钟 · 按需使用 1–4 单位 · 当前储水 ${state.shelter.water}`, disabledReason: timedReason(state, 20) ?? (state.shelter.water < 1 ? '储水装置已空' : null), onSelect: () => run(performSurvivalAction(state, 'drink-storage')) },
         { id: 'barricade', label: '木板加固', hint: '2小时 · 木板 -1 · 完整度 +20', disabledReason: timedReason(state, 120) ?? (inventoryCount(state.inventory, 'wood-board') < 1 ? '缺少木板 ×1' : null), onSelect: () => run(performSurvivalAction(state, 'barricade')) },
         { id: 'plate', label: '钢板封固', hint: '2小时30分 · 薄钢板 -1 · 完整度 +32 · 加固 +2', disabledReason: timedReason(state, 150) ?? (inventoryCount(state.inventory, 'metal-sheet') < 1 ? '缺少薄钢板 ×1' : inventoryCount(state.inventory, 'toolkit') < 1 ? '需要家用工具箱' : null), onSelect: () => run(performSurvivalAction(state, 'plate')) },
         { id: 'purify', label: '处理雨水', hint: '1小时30分 · 净水片、滤布、储水 6 → 瓶装水 2', disabledReason: timedReason(state, 90) ?? (inventoryCount(state.inventory, 'purifier-tablet') < 1 ? '缺少净水片' : inventoryCount(state.inventory, 'filter-cloth') < 1 ? '缺少活性炭滤布' : state.shelter.water < 6 ? '储水不足 6' : null), onSelect: () => run(performSurvivalAction(state, 'purify')) },
@@ -331,7 +343,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         ...ENTERTAINMENT.map((activity) => ({
           id: `entertainment-${activity.id}`,
           label: activity.name,
-          hint: `${formatDuration(activity.minutes)} · 精神 +${activity.morale}${activity.id === 'music' ? ' · 电力 -1（缺电时电池 -1）' : activity.requiredItem ? ` · 需要${activity.requiredItem === 'paperback' ? '旧版悬疑小说' : '缺角扑克牌'}` : ' · 不消耗物资'}`,
+          hint: `${formatDuration(activity.minutes)} · 体力 -${activity.stamina} · 精神 +${activity.morale}${activity.id === 'music' ? ' · 电力 -1（缺电时电池 -1）' : activity.requiredItem ? ` · 需要${activity.requiredItem === 'paperback' ? '旧版悬疑小说' : '缺角扑克牌'}` : ' · 不消耗物资'}`,
           disabledReason: entertainmentDisabledReason(state, activity.id as EntertainmentId),
           onSelect: () => run(performEntertainment(state, activity.id as EntertainmentId)),
         })),
@@ -390,6 +402,8 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       ];
     }
     if (mode === 'power') {
+      const trapUpgrade = nextPowerTrap(state);
+      const installedTrap = powerTrapDefinition(state.powerTrap.level);
       return [
         { id: 'generator', label: '启动燃油发电机', hint: '30分钟 · 需要发电机本体与供电改造 · 燃料 -3 · 电力 +5', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '灾前未完成一级供电改造' : inventoryCount(state.inventory, 'fuel-generator') < 1 ? '缺少发电机本体（灾前五金店购买）' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
         ...POWER_POLICIES.map((policy) => {
@@ -401,6 +415,19 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             onSelect: () => run(setPowerPolicy(state, policy.id)),
           };
         }),
+        ...(state.difficulty === 'hard' && trapUpgrade ? [{
+          id: 'power-trap-upgrade',
+          label: `${state.powerTrap.level ? '升级' : '安装'} · ${trapUpgrade.name}`,
+          hint: `${formatDuration(trapUpgrade.minutes)} · 每次波次耗电 ${trapUpgrade.powerCost} · 主动攻击 ${trapUpgrade.attack} · ${Object.entries(trapUpgrade.materials).map(([itemId, quantity]) => `${ITEM_MAP[itemId]?.name ?? itemId}×${quantity}`).join('、')}`,
+          disabledReason: powerTrapUpgradeDisabledReason(state),
+          onSelect: () => run(upgradePowerTrap(state)),
+        }] : []),
+        ...(installedTrap ? [{
+          id: 'power-trap-toggle',
+          label: state.powerTrap.armed ? `断开 · ${installedTrap.name}` : `接通 · ${installedTrap.name}`,
+          hint: state.powerTrap.armed ? '保留电力；下一次尸潮不进行主动攻击' : `下一次困难波次耗电 ${installedTrap.powerCost}，先抵消 ${installedTrap.attack} 冲击`,
+          onSelect: () => run(setPowerTrapArmed(state, !state.powerTrap.armed)),
+        }] : []),
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
       ];
     }
@@ -437,7 +464,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                   : mode === 'explore'
                       ? '选择探索地点'
                       : mode === 'craft'
-                        ? '家具、烹饪与制作'
+                ? '家具、烹饪与制作'
                         : mode === 'entertainment'
                           ? '娱乐与精神恢复'
                         : mode === 'power'
@@ -466,6 +493,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   return (
     <main className="game-screen">
       <StatusBar state={state} savedAt={savedAt} onOpenInventory={() => setDrawer(true)} onOpenSettings={onSettings} onRestart={onRestart} />
+      {activeWish && !state.dailySettlement && state.phase !== 'ended' && (
+        <aside className={`wish-float ${state.dailyPlan?.completedAtMinutes !== undefined ? 'complete' : ''}`} aria-live="polite">
+          <span>{state.dailyPlan?.completedAtMinutes !== undefined ? '愿望已达成' : '今日愿望'}</span>
+          <strong>{activeWish.name}</strong>
+          {state.dailyPlan?.completedAtMinutes === undefined && <small>{activeWish.description} · +{dailyWishRewardPoints(state)} 点</small>}
+        </aside>
+      )}
       {drawer && <button className="drawer-scrim" aria-label="关闭背包" onClick={() => setDrawer(false)} />}
       <div className="game-layout">
         <InventoryPanel state={state} open={drawer} onClose={() => setDrawer(false)} onUse={(itemId) => run(consumeGameItem(state, itemId))} />
@@ -488,12 +522,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           ) : state.dailySettlement && settlementWish ? (
             <article className="current-story daily-settlement-card">
               <span className="story-time">DAY SETTLEMENT / {state.dailySettlement.dayLabel}</span>
-              <h2>{state.dailySettlement.wishAchieved ? `愿望达成 · +${state.dailySettlement.earnedPoints} 点` : '愿望未达成 · 无惩罚'}</h2>
+              <h2>{state.dailySettlement.wishAchieved ? `愿望达成 · 本日累计 +${state.dailySettlement.earnedPoints} 点` : '愿望未达成 · 无惩罚'}</h2>
               <p>{state.dailySettlement.wishAchieved
-                ? `“${settlementWish.name}”在 ${formatClock(state.dailySettlement.completedAtMinutes!)} 达成。现在从下方挑一项奖励，剩余点数会保留到明天。`
-                : `“${settlementWish.name}”今天没有完成。不会扣状态、资源或已有愿望点，确认后即可继续。`}</p>
+                ? `“${settlementWish.name}”在 ${formatClock(state.dailySettlement.completedAtMinutes!)} 达成，日结获得 ${state.dailySettlement.wishPoints} 点；委托奖励 ${state.dailySettlement.commissionPoints ?? 0} 点此前已即时入账。现在可挑选奖励或保留点数。`
+                : `“${settlementWish.name}”今天没有完成。不会扣状态、资源或已有愿望点；已完成委托的 ${state.dailySettlement.commissionPoints ?? 0} 点仍然保留。`}</p>
               <dl className="settlement-breakdown">
                 <div><dt>今日愿望</dt><dd>{state.dailySettlement.wishAchieved ? `+${state.dailySettlement.wishPoints}` : '+0'}</dd></div>
+                <div><dt>每日委托</dt><dd>+{state.dailySettlement.commissionPoints ?? 0}</dd></div>
                 <div><dt>未达成惩罚</dt><dd>0</dd></div>
                 <div><dt>当前余额</dt><dd>{state.dailyPoints}</dd></div>
               </dl>
@@ -544,29 +579,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           </section>
         </section>
 
-        <aside className="brief-panel" aria-label="目标、天气与人物关系">
-          <section className="daily-objective">
-            <span className="section-kicker">DAILY PROMISE</span>
-            <h2>今日愿望 · {state.dailyPoints} 点</h2>
-            {state.phase === 'ended' ? (
-              <p>本轮愿望与资源结算已经结束，终局状态不会再发生变化。</p>
-            ) : state.dailySettlement ? (
-              <p>{state.dailySettlement.wishAchieved ? '今天的愿望已经达成，请在下方领取一项奖励。' : '今天的愿望没有完成；没有惩罚，确认后继续。'}</p>
-            ) : activeWish ? (
-              <>
-                <p><strong>{activeWish.name}</strong><br />{activeWish.description}</p>
-                <dl className="daily-progress">
-                  <div><dt>进度</dt><dd>{dailyWishProgress(state)}</dd></div>
-                  <div><dt>达成奖励</dt><dd>+{dailyWishRewardPoints(state)} 愿望点</dd></div>
-                </dl>
-              </>
-            ) : state.flags.includes('evacuation-choice-pending') ? (
-              <p>最后一天已经完成，等待你决定撤离路线。</p>
-            ) : (
-              <p>今日愿望正在生成；重新载入存档即可恢复。</p>
-            )}
-          </section>
-          <section>
+        <aside className={`brief-panel brief-tab-${briefTab}`} aria-label="目标、技能与人物关系">
+          <nav className="brief-tabs" role="tablist" aria-label="信息分类">
+            <button type="button" role="tab" aria-selected={briefTab === 'today'} onClick={() => setBriefTab('today')}>今日</button>
+            <button type="button" role="tab" aria-selected={briefTab === 'skills'} onClick={() => setBriefTab('skills')}>技能</button>
+            <button type="button" role="tab" aria-selected={briefTab === 'people'} onClick={() => setBriefTab('people')}>人物</button>
+          </nav>
+          <section className="brief-today">
             <span className="section-kicker">CURRENT OBJECTIVE</span>
             <h2>当前目标</h2>
             <p>{state.phase === 'prep' ? `用七天建立足够的储备、加固与联系。${difficultyConfig.name}难度的日终是 ${formatClock(dayEndMinutes(state))}。` : state.phase === 'survival' ? `活过封锁第 ${difficultyConfig.survivalGoalDays} 夜。当前还需 ${Math.max(0, difficultyConfig.survivalGoalDays - state.survivalDay)} 天；普通撤离不依赖剧情物品。` : '把这轮留下的记忆带回下一次倒计时，并在标题页重选难度。'}</p>
@@ -579,8 +598,19 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               </dl>
             )}
           </section>
+          {state.dailyPlan && (state.dailyPlan.commissions?.length ?? 0) > 0 && (
+            <section className="brief-today commission-panel">
+              <span className="section-kicker">DAILY COMMISSIONS</span>
+              <h2>每日委托 · 即时奖励</h2>
+              <div className="commission-list">{state.dailyPlan.commissions!.map((commission) => {
+                const definition = DAILY_COMMISSION_MAP[commission.id];
+                const complete = commission.completedAtMinutes !== undefined;
+                return <article key={commission.id} className={complete ? 'complete' : ''}><strong>{complete ? '已完成' : '进行中'} · {definition.name}</strong><p>{definition.description}</p><span>{complete ? `+${commission.pointsAwarded ?? 1} 点已入账` : '完成后愿望点 +1'}</span></article>;
+              })}</div>
+            </section>
+          )}
           {state.debt && (
-            <section className="debt-panel">
+            <section className="debt-panel brief-today">
               <span className="section-kicker">OUTSTANDING DEBT</span>
               <h2>未结债务 · ¥{state.debt.balance}</h2>
               <p>{LOAN_MAP[state.debt.tier].name}，封锁第 {state.debt.dueSurvivalDay} 天到期。当前危险判定 +{debtRiskBonus(state)}；已逾期催收 {state.debt.missedCollections} 次。</p>
@@ -591,13 +621,14 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             const wave = nextSiegeWave(state)!;
             const mitigation = siegeMitigation(state);
             return (
-              <section className="siege-panel">
+              <section className="siege-panel brief-today">
                 <span className="section-kicker">HARD MODE SIEGE</span>
                 <h2>{wave.day === state.survivalDay ? `今夜 · ${wave.name}` : `下一波 · 第 ${wave.day} 夜`}</h2>
                 <p>{wave.warning}{wave.day >= 8 ? '第 8 夜起围攻每天发生且持续增强；受压加固会磨损，必须安排材料和维修时间。' : '波次固定发生，方便提前安排材料和维修时间。'}</p>
                 <dl className="daily-progress">
                   <div><dt>冲击</dt><dd>{wave.pressure}</dd></div>
-                  <div><dt>加固吸收</dt><dd>{Math.min(wave.pressure, mitigation)}</dd></div>
+                  <div><dt>主动攻击</dt><dd>{siegeAttack(state)}</dd></div>
+                  <div><dt>加固吸收</dt><dd>{Math.min(Math.max(0, wave.pressure - siegeAttack(state)), mitigation)}</dd></div>
                   <div><dt>预计损伤</dt><dd>{siegeDamage(state, wave)}</dd></div>
                   {wave.reinforcementWear > 0 && <div><dt>加固磨损</dt><dd>−{Math.min(state.shelter.reinforcement, wave.reinforcementWear)}</dd></div>}
                 </dl>
@@ -605,7 +636,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             );
           })()}
           {state.phase === 'survival' && state.difficulty === 'hard' && (
-            <section className="siege-panel">
+            <section className="siege-panel brief-today">
               <span className="section-kicker">LATE-GAME ATTRITION</span>
               <h2>{pressure.name}</h2>
               <p>{pressure.description}这些数值由同一套压力表驱动，日志与夜间结算会逐项记录。</p>
@@ -619,13 +650,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             </section>
           )}
           {state.phase === 'survival' && (
-            <section className="risk-guide">
+            <section className="risk-guide brief-skills">
               <span className="section-kicker">DANGER CHECK</span>
               <h2>危险判定怎么读</h2>
               <p>标签中的百分比就是当前受险概率。行动时生成 1—100 的种子随机值：<strong>大于风险线＝安全</strong>；落在风险线以内＝轻微后果；低于风险线一半＝严重后果。日志会列出基础风险及每个加减因素。</p>
             </section>
           )}
-          <section className="exploration-skills">
+          <section className="exploration-skills brief-skills">
             <span className="section-kicker">FIELD SKILLS</span>
             <h2>现场技能</h2>
             <dl className="daily-progress">
@@ -636,13 +667,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             <p>每 3 点经验提升 1 级，最高 5 级。技能、工具与情报会共同解锁安静或高收益的处理方式。</p>
           </section>
           {state.isolationNights > 0 && (
-            <section className="isolation-panel">
+            <section className="isolation-panel brief-today">
               <span className="section-kicker">ISOLATION WARNING</span>
               <h2>连续孤立 {state.isolationNights} / 3 夜</h2>
               <p>精神低于危险线且没有任何有效广播联络。收听广播建立联系人，或先通过休息与物资把精神恢复到 20 以上，即可中断累计。</p>
             </section>
           )}
-          <section>
+          <section className="brief-people">
             <span className="section-kicker">PEOPLE IN THE BUILDING</span>
             <h2>幸存者</h2>
             <div className="npc-list">
@@ -669,7 +700,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               })}
             </div>
           </section>
-          <section className="seed-readout"><span>SEED</span><code>{state.seed.toString(16).toUpperCase()}</code></section>
+          <section className="seed-readout brief-skills"><span>SEED</span><code>{state.seed.toString(16).toUpperCase()}</code></section>
         </aside>
       </div>
 
@@ -719,6 +750,33 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           </div>
         </Modal>
       )}
+      {cookingAppliance && (() => {
+        const applianceName = cookingAppliance === 'gas-stove' ? '燃气炉' : cookingAppliance === 'microwave' ? '微波炉' : '电火锅';
+        const ingredients = availableCookingIngredients(state);
+        const selectedSet = new Set(selectedIngredients);
+        const exactRecipe = RECIPES_BY_APPLIANCE[cookingAppliance].find((recipe) => {
+          const required = Object.entries(recipe.ingredients).flatMap(([itemId, quantity]) => Array(quantity).fill(itemId)).sort();
+          const selected = [...selectedIngredients].sort();
+          return required.length === selected.length && required.every((itemId, index) => itemId === selected[index]);
+        });
+        const disabled = selectedCookingDisabledReason(state, cookingAppliance, selectedIngredients);
+        return (
+          <Modal title={`${applianceName} · 自选食材`} onClose={() => { setCookingAppliance(null); setSelectedIngredients([]); }} footer={<button className="primary-inline" type="button" disabled={Boolean(disabled)} title={disabled ?? undefined} onClick={() => run(performFurnitureAction(state, cookingAppliance, selectedIngredients))}>{disabled ?? `开始烹饪 · ${selectedIngredients.length} 种食材`}</button>}>
+            <p className="store-description">逐项选择这次真正投入锅里的食材。完全吻合的组合会尝试对应配方；其他组合也能开火，但可能成为临时杂烩或失败料理。</p>
+            <div className="cooking-selection-summary">
+              <span>已选 <b>{selectedIngredients.length}</b> 种</span>
+              <span>{exactRecipe ? `识别为：${exactRecipe.name}` : selectedIngredients.length ? '未识别配方 · 将即兴处理' : '等待选择食材'}</span>
+            </div>
+            <div className="ingredient-grid">
+              {ingredients.map((item) => (
+                <button key={item.id} type="button" className={selectedSet.has(item.id) ? 'selected' : ''} aria-pressed={selectedSet.has(item.id)} onClick={() => setSelectedIngredients((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])}>
+                  <strong>{item.name}</strong><span>现有 {inventoryCount(state.inventory, item.id)} · {item.description}</span>
+                </button>
+              ))}
+            </div>
+          </Modal>
+        );
+      })()}
     </main>
   );
 }

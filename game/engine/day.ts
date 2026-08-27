@@ -152,9 +152,10 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
     const ration = consumeRation(next, water, '夜间配给');
     next = ration.state;
     if (ration.consumed) consumed.push(water.name);
-  } else if (next.autoRations && next.stats.hydration < 60 && next.shelter.water >= 4) {
-    next = applyEffect(next, { shelter: { water: -4 }, stats: { hydration: 24 } }, '使用水箱储水');
-    consumed.push('水箱储水');
+  } else if (next.autoRations && next.stats.hydration < 60 && next.shelter.water >= 1) {
+    const waterUsed = Math.min(4, next.shelter.water, Math.max(1, Math.ceil((60 - next.stats.hydration) / 6)));
+    next = applyEffect(next, { shelter: { water: -waterUsed }, stats: { hydration: waterUsed * 6 } }, '使用水箱储水');
+    consumed.push(`水箱储水 ${waterUsed} 单位`);
   }
 
   const policy = POWER_POLICY_MAP[next.powerPolicy];
