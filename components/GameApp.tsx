@@ -28,6 +28,7 @@ export default function GameApp() {
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [seed, setSeed] = useState('AFTERLIGHT-001');
   const [difficulty, setDifficulty] = useState<DifficultyId>('easy');
+  const [autoRations, setAutoRations] = useState(true);
   const [savedAt, setSavedAt] = useState('--:--');
   const [notice, setNotice] = useState<string | null>(null);
   const [modal, setModal] = useState<'guide' | 'settings' | 'restart' | null>(null);
@@ -73,7 +74,7 @@ export default function GameApp() {
   };
 
   const startFresh = () => {
-    const next = createInitialState(seed.trim() || 'AFTERLIGHT-001', meta.unlocked, meta.runs, difficulty);
+    const next = createInitialState(seed.trim() || 'AFTERLIGHT-001', meta.unlocked, meta.runs, difficulty, autoRations);
     commit(next);
     setScreen('game');
     setModal(null);
@@ -106,9 +107,11 @@ export default function GameApp() {
           hasSave={Boolean(saved)}
           seed={seed}
           difficulty={difficulty}
+          autoRations={autoRations}
           meta={meta}
           onSeedChange={setSeed}
-          onDifficultyChange={setDifficulty}
+          onDifficultyChange={(nextDifficulty) => { setDifficulty(nextDifficulty); setAutoRations(nextDifficulty === 'easy'); }}
+          onAutoRationsChange={setAutoRations}
           onStart={startRequested}
           onContinue={() => { if (saved) { setState(saved); setScreen('game'); } }}
           onGuide={() => setModal('guide')}
@@ -145,6 +148,7 @@ export default function GameApp() {
       {modal === 'settings' && (
         <Modal title="阅读与操作设置" onClose={() => setModal(null)} footer={<button className="primary-inline" onClick={() => setModal(null)} type="button">保存并关闭</button>}>
           <div className="settings-list">
+            <label><span><strong>夜间自动补充食物与饮水</strong><small>{screen === 'game' ? '立即应用于当前轮；关闭后请白天手动使用物资' : '应用于下一轮；简易默认开启，标准与艰难默认关闭'}</small></span><input type="checkbox" checked={screen === 'game' && state ? state.autoRations : autoRations} onChange={(event) => { if (screen === 'game' && state) commit({ ...state, autoRations: event.target.checked }); else setAutoRations(event.target.checked); }} /></label>
             <label><span><strong>数字键快捷操作</strong><small>按 1—9 选择底部对应选项</small></span><input type="checkbox" checked={settings.shortcuts} onChange={(event) => updateSettings({ shortcuts: event.target.checked })} /></label>
             <label><span><strong>减少动画</strong><small>关闭闪烁、过渡和脉冲效果</small></span><input type="checkbox" checked={settings.reducedMotion} onChange={(event) => updateSettings({ reducedMotion: event.target.checked })} /></label>
             <label><span><strong>高对比度</strong><small>加强边界与文字对比</small></span><input type="checkbox" checked={settings.highContrast} onChange={(event) => updateSettings({ highContrast: event.target.checked })} /></label>

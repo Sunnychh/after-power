@@ -98,18 +98,18 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   const waterDrain = Math.round(24 * config.nightCostMultiplier);
   const staminaGain = next.difficulty === 'easy' ? 32 : next.difficulty === 'hard' ? 22 : 26;
   const moraleDrain = next.difficulty === 'easy' ? 0 : next.difficulty === 'hard' ? 4 : 2;
-  const food = findRation(next, 'food');
-  const water = findRation(next, 'water');
+  const food = next.autoRations ? findRation(next, 'food') : undefined;
+  const water = next.autoRations ? findRation(next, 'water') : undefined;
   next = applyEffect(next, { stats: { satiety: -foodDrain, hydration: -waterDrain, stamina: staminaGain, morale: -moraleDrain } }, '夜间基础消耗');
   const consumed: string[] = [];
-  if (next.stats.satiety < 60 && food) {
+  if (next.autoRations && next.stats.satiety < 60 && food) {
     next = consumeRation(next, food, '夜间配给');
     consumed.push(food.name);
   }
-  if (next.stats.hydration < 60 && water) {
+  if (next.autoRations && next.stats.hydration < 60 && water) {
     next = consumeRation(next, water, '夜间配给');
     consumed.push(water.name);
-  } else if (next.stats.hydration < 60 && next.shelter.water >= 4) {
+  } else if (next.autoRations && next.stats.hydration < 60 && next.shelter.water >= 4) {
     next = applyEffect(next, { shelter: { water: -4 }, stats: { hydration: 24 } }, '使用水箱储水');
     consumed.push('水箱储水');
   }
@@ -145,7 +145,7 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   next.logs = [...next.logs, createLog(
     next,
     `${next.weather} · 夜间结算`,
-    `基础消耗：饱腹 -${foodDrain}，水分 -${waterDrain}。${consumed.length ? `自动配给：${consumed.join('、')}。` : '本夜未启用额外配给。'}${hadNightLight ? '留了一盏灯。' : '屋里整夜没有电。'}${fridgeText}`,
+    `基础消耗：饱腹 -${foodDrain}，水分 -${waterDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}${hadNightLight ? '留了一盏灯。' : '屋里整夜没有电。'}${fridgeText}`,
     next.stats.health < 35 ? 'bad' : 'system',
   )];
 

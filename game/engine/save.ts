@@ -81,6 +81,7 @@ function hasValidCore(state: Partial<GameState> | null): state is GameState {
 
 function removeStaleBatches(state: GameState): GameState {
   const next = structuredClone(state);
+  if (typeof next.autoRations !== 'boolean') next.autoRations = next.difficulty === 'easy';
   next.inventory = expireItems(next.inventory, absoluteDay(next)).inventory;
   const seenDailySettlements = new Set<string>();
   const seenLogIds = new Set<string>();

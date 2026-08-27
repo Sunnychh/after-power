@@ -62,9 +62,9 @@ export function StatusDock({ state }: { state: GameState }) {
       <div className="status-grid">
         {STATS.map(({ key, label }) => <StatCell key={key} label={label} value={state.stats[key]} />)}
         <StatCell label="完整度" value={state.shelter.integrity} />
-        <div className="stat-cell resource-cell" aria-label={`电力 ${state.shelter.power}，燃料 ${state.shelter.fuel}，愿望点 ${state.dailyPoints}`}>
+        <div className="stat-cell resource-cell" aria-label={`电力 ${state.shelter.power}，燃料 ${state.shelter.fuel}，愿望点 ${state.dailyPoints}，夜间配给${state.autoRations ? '自动' : '手动'}`}>
           <div className="stat-heading"><span>供能</span><b>{state.shelter.power}</b></div>
-          <span className="resource-detail">电 {state.shelter.power} · 燃 {state.shelter.fuel} · 愿望点 {state.dailyPoints}</span>
+          <span className="resource-detail">电 {state.shelter.power} · 燃 {state.shelter.fuel} · 愿望点 {state.dailyPoints} · 配给 {state.autoRations ? '自动' : '手动'}</span>
         </div>
       </div>
     </aside>

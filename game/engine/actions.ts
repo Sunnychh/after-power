@@ -275,8 +275,8 @@ export function exploreLocation(state: GameState, locationId: string): Result {
   next = danger.state;
   const visitCount = next.visited[locationId] ?? 0;
   const lootBonus = DIFFICULTY_MAP[next.difficulty].lootBonus;
-  let lootCount = (danger.severity === 'safe' ? 3 : danger.severity === 'minor' ? 2 : 1) + lootBonus;
-  if (visitCount >= 2) lootCount = 1 + lootBonus;
+  let lootCount = Math.max(0, (danger.severity === 'safe' ? 3 : danger.severity === 'minor' ? 2 : 1) + lootBonus);
+  if (visitCount >= 1) lootCount = Math.max(0, 1 + lootBonus);
   const found: string[] = [];
   for (let i = 0; i < lootCount; i += 1) {
     const pick = seededPick(next.rngState, [...location.loot].sort());

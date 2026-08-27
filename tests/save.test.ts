@@ -79,6 +79,7 @@ test('v1 存档迁移为标准难度时钟制并保留进度', () => {
   delete legacy.difficulty;
   delete legacy.clockMinutes;
   delete legacy.furniture;
+  delete legacy.autoRations;
   storage.setItem(LEGACY_GAME_SAVE_KEY, JSON.stringify(legacy));
   const migrated = loadGame(storage);
   assert.equal(migrated?.version, 3);
@@ -87,6 +88,7 @@ test('v1 存档迁移为标准难度时钟制并保留进度', () => {
   assert.ok(migrated?.flags.includes('legacy-flag'));
   assert.equal(migrated?.furniture.microwave.enabled, true);
   assert.equal(migrated?.dailyPoints, 0);
+  assert.equal(migrated?.autoRations, false);
 });
 
 test('v2 存档迁移为 v3 每日愿望系统且保留当前局', () => {
@@ -98,6 +100,7 @@ test('v2 存档迁移为 v3 每日愿望系统且保留当前局', () => {
   delete version2.dailyPoints;
   delete version2.dailyPlan;
   delete version2.dailySettlement;
+  delete version2.autoRations;
   storage.setItem(PREVIOUS_GAME_SAVE_KEY, JSON.stringify(version2));
   const migrated = loadGame(storage);
   assert.equal(migrated?.version, 3);
@@ -106,6 +109,7 @@ test('v2 存档迁移为 v3 每日愿望系统且保留当前局', () => {
   assert.equal(migrated?.dailyPoints, 0);
   assert.equal(migrated?.dailyPlan?.dayKey, 'prep:1');
   assert.equal(migrated?.dailyPlan?.deadlineId, 'open');
+  assert.equal(migrated?.autoRations, true);
 });
 
 test('损坏的新键不会回退并复活旧存档', () => {

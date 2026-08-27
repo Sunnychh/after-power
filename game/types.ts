@@ -186,6 +186,7 @@ export interface GameState {
   seed: number;
   rngState: number;
   difficulty: DifficultyId;
+  autoRations: boolean;
   phase: Phase;
   prepDay: number;
   survivalDay: number;

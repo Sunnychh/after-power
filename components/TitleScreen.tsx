@@ -4,13 +4,15 @@ import { ABILITIES } from '../game/data/world.ts';
 import { DIFFICULTIES } from '../game/data/difficulties.ts';
 import type { AbilityId, DifficultyId, MetaState } from '../game/types.ts';
 
-export function TitleScreen({ hasSave, seed, difficulty, meta, onSeedChange, onDifficultyChange, onStart, onContinue, onGuide, onSettings, onUnlock }: {
+export function TitleScreen({ hasSave, seed, difficulty, autoRations, meta, onSeedChange, onDifficultyChange, onAutoRationsChange, onStart, onContinue, onGuide, onSettings, onUnlock }: {
   hasSave: boolean;
   seed: string;
   difficulty: DifficultyId;
+  autoRations: boolean;
   meta: MetaState;
   onSeedChange: (seed: string) => void;
   onDifficultyChange: (difficulty: DifficultyId) => void;
+  onAutoRationsChange: (enabled: boolean) => void;
   onStart: () => void;
   onContinue: () => void;
   onGuide: () => void;
@@ -51,6 +53,10 @@ export function TitleScreen({ hasSave, seed, difficulty, meta, onSeedChange, onD
             ))}
           </div>
         </section>
+        <label className="run-option">
+          <span><strong>夜间自动补充</strong><small>低于阈值时自动使用背包食物、饮水或水箱储水；关闭后由你自行安排。</small></span>
+          <input type="checkbox" checked={autoRations} onChange={(event) => onAutoRationsChange(event.target.checked)} />
+        </label>
         <label className="seed-field">
           <span>本轮种子</span>
           <input value={seed} maxLength={32} onChange={(event) => onSeedChange(event.target.value)} aria-describedby="seed-help" />

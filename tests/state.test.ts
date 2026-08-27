@@ -47,6 +47,7 @@ test('夜间结算明确消耗食物与饮水', () => {
   const state = survivalState('ration');
   state.stats.satiety = 55;
   state.stats.hydration = 55;
+  state.autoRations = true;
   state.inventory = addItem(state.inventory, ITEM_MAP.crackers, 1, 8);
   state.inventory = addItem(state.inventory, ITEM_MAP['water-bottle'], 1, 8);
   const result = endDay(state);
@@ -127,9 +128,9 @@ test('真相路线选择事件按难度在关键日稳定出现', () => {
   }
 });
 
-test('内容配置达到 35 物品、30 事件、6 地点、4 NPC、5 条事件链', () => {
+test('内容配置达到 35 物品、36 事件、6 地点、4 NPC、5 条事件链', () => {
   assert.ok(ITEMS.length >= 35);
-  assert.ok(EVENTS.length >= 30);
+  assert.ok(EVENTS.length >= 36);
   assert.ok(LOCATIONS.length >= 6);
   assert.ok(NPCS.length >= 4);
   const chains = new Set(EVENTS.flatMap((event) => event.chain ? [event.chain.id] : []));

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ITEM_MAP, ITEMS } from '../game/data/items.ts';
-import { performPrepAction } from '../game/engine/actions.ts';
+import { exploreLocation, performPrepAction } from '../game/engine/actions.ts';
 import { continueAfterMissedWish } from '../game/engine/daily.ts';
 import { endDay, extendColdStorage } from '../game/engine/day.ts';
 import { furnitureActionDisabledReason, performFurnitureAction } from '../game/engine/furniture.ts';
@@ -33,8 +33,41 @@ test('三档难度提供递进资源，四件家具均为公寓自带', () => {
   assert.ok(easy.money > normal.money && normal.money > hard.money);
   assert.ok(easy.carryCapacity > normal.carryCapacity && normal.carryCapacity > hard.carryCapacity);
   assert.equal(inventoryCount(easy.inventory, 'water-bottle'), 4);
+  assert.equal(easy.autoRations, true);
+  assert.equal(normal.autoRations, false);
+  assert.equal(hard.autoRations, false);
   assert.equal(Object.keys(easy.furniture).length, 4);
   assert.ok(Object.values(easy.furniture).every((unit) => unit.enabled && unit.condition === 100));
+});
+
+test('自动补充关闭时只结算基础消耗，不擅自使用物资或水箱', () => {
+  const manual = survivalState('manual-rations', 'normal');
+  manual.autoRations = false;
+  manual.stats.satiety = 55;
+  manual.stats.hydration = 55;
+  manual.inventory = addItem(manual.inventory, ITEM_MAP.crackers, 1, 8);
+  manual.inventory = addItem(manual.inventory, ITEM_MAP['water-bottle'], 1, 8);
+  manual.shelter.water = 12;
+  const result = endDay(manual);
+  assert.equal(inventoryCount(result.state.inventory, 'crackers'), 1);
+  assert.equal(inventoryCount(result.state.inventory, 'water-bottle'), 1);
+  assert.equal(result.state.shelter.water, 12);
+  assert.ok(result.state.logs.some((log) => log.body.includes('自动补充已关闭')));
+});
+
+test('标准与艰难的重复探索产出受限，艰难可能空手返回', () => {
+  for (const difficulty of ['normal', 'hard'] as const) {
+    let state = survivalState(`repeat-loot-${difficulty}`, difficulty);
+    state.stats.stamina = 100;
+    state = exploreLocation(state, 'riverside-market').state;
+    state.currentEventId = undefined;
+    state.stats.stamina = 100;
+    const before = Object.values(state.inventory).flat().reduce((sum, batch) => sum + batch.quantity, 0);
+    const repeated = exploreLocation(state, 'riverside-market');
+    const after = Object.values(repeated.state.inventory).flat().reduce((sum, batch) => sum + batch.quantity, 0);
+    assert.equal(repeated.ok, true);
+    assert.equal(after - before, difficulty === 'normal' ? 1 : 0);
+  }
 });
 
 test('同种子危险掷骰相同，但简易风险低于标准和艰难', () => {

@@ -59,6 +59,7 @@ export function createInitialState(
   unlocked: AbilityId[] = [],
   runOrdinal = 0,
   difficulty: DifficultyId = 'normal',
+  autoRations = difficulty === 'easy',
 ): GameState {
   const normalized = normalizeSeed(seed);
   const difficultyConfig = DIFFICULTY_MAP[difficulty];
@@ -70,6 +71,7 @@ export function createInitialState(
     seed: normalized,
     rngState: normalized,
     difficulty,
+    autoRations,
     phase: 'prep',
     prepDay: 1,
     survivalDay: 0,

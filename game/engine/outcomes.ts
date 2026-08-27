@@ -2,7 +2,7 @@ import { DIFFICULTY_MAP } from '../data/difficulties.ts';
 import type { GameState, MetaState, Outcome } from '../types.ts';
 
 export function truthEvidenceCount(state: GameState): number {
-  const evidenceFlags = ['evidence-signal', 'evidence-ledger', 'evidence-van', 'evidence-flare'];
+  const evidenceFlags = ['evidence-signal', 'evidence-ledger', 'evidence-van', 'evidence-flare', 'evidence-quarantine-list'];
   const flagCount = evidenceFlags.filter((flag) => state.flags.includes(flag)).length;
   const itemCount = ['lab-badge', 'sample-tube', 'bus-manifest', 'sealed-letter']
     .filter((itemId) => state.inventory[itemId]?.some((batch) => batch.quantity > 0)).length;

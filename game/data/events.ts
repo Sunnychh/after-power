@@ -319,6 +319,61 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
+    id: 'pump-restart', title: '停在半层的水压', phase: 'survival', minDay: 2, maxDay: 8,
+    text: '厨房水龙头忽然吐出几口带锈味的水。楼顶水箱还有存量，但地下泵房的控制器只接受一次远程重启。',
+    options: [
+      { label: '用备用电力重启水泵', hint: '电力 -4，储水 +14', result: '水压维持了十一分钟。你接满所有标过日期的容器，随后立刻关闭总阀。', effects: { shelter: { power: -4, water: 14 }, addFlags: ['pump-restarted'] } },
+      { label: '只接自家管道残水', hint: '储水 +5，精神 -3', result: '楼上的人还在拧水龙头时，你已经把自家阀门关上。', effects: { shelter: { water: 5 }, stats: { morale: -3 }, addFlags: ['pump-kept-private'] } },
+      { label: '不碰来历不明的水', hint: '健康 +2', result: '水很快重新断掉。桶是空的，但你避开了一次可能的污染。', effects: { stats: { health: 2 } } },
+    ],
+  },
+  {
+    id: 'sealed-cartons', title: '封条完整的纸箱', phase: 'survival', minDay: 3, maxDay: 9,
+    text: '消防通道堆着三只印有社区配送字样的纸箱。签收单被撕走，封条上却写着“隔离户优先”。',
+    options: [
+      { label: '拆一箱留下基本用品', hint: '口罩 +1，消毒液 +1，精神 -4', result: '箱里每份物资都贴着门牌。你只撕掉了其中一张标签。', effects: { inventory: { masks: 1, disinfectant: 1 }, stats: { morale: -4 }, addFlags: ['opened-relief-box'] } },
+      { label: '按门牌逐户放到门口', hint: '体力 -10，精神 +7', result: '你没有敲门，只把纸箱分完。回程时，有人在门后轻轻说了声谢谢。', effects: { stats: { stamina: -10, morale: 7 }, addFlags: ['delivered-relief-boxes'] } },
+      { label: '原地封住消防通道', hint: '完整度 +3', result: '你用废桌挡住入口，至少不会有人借着物资箱逐户试门。', effects: { shelter: { integrity: 3 } } },
+    ],
+  },
+  {
+    id: 'clinic-freezer-alarm', title: '诊所冷柜的报警短信', phase: 'survival', minDay: 4, maxDay: 10,
+    text: '一条延迟发送的设备短信抵达手机：青禾诊所药品冷柜将在四十分钟后失温。短信里附着一次性门锁码。',
+    options: [
+      { label: '带移动电源赶去保住药品', hint: '电力 -5，危险：中，抗生素 +1', result: '你只带走一盒临期药，其余冷柜重新开始降温。至少后来的人还能用。', danger: 34, effects: { shelter: { power: -5 }, inventory: { antibiotics: 1 }, stats: { stamina: -8 }, addFlags: ['clinic-freezer-saved'] } },
+      { label: '拆下冷柜备用电池', hint: '电池 +2，精神 -5', result: '报警声停了。你带走两组电池，柜门内侧很快蒙上一层水汽。', effects: { inventory: { batteries: 2 }, stats: { morale: -5 }, addFlags: ['clinic-freezer-stripped'] } },
+      { label: '删除短信，不冒险出门', hint: '体力 +4', result: '四十分钟后，设备又发来最后一条失温通知，随后彻底离线。', effects: { stats: { stamina: 4 } } },
+    ],
+  },
+  {
+    id: 'quarantine-list', title: '贴错楼栋的隔离名单', phase: 'survival', minDay: 5, maxDay: 11,
+    text: '风把一张盖章名单吹到阳台。上面记录的是隔壁楼被带走的住户，症状栏有几处明显后补的笔迹。',
+    options: [
+      { label: '拍照并记录涂改位置', hint: '情报 +2，精神 -4，留下证据', result: '照片放大后能看出两种墨水。你把原件压进防水袋。', effects: { intel: 2, stats: { morale: -4 }, addFlags: ['evidence-quarantine-list'] } },
+      { label: '把名单送回隔壁楼', hint: '体力 -8，精神 +5', result: '门缝后伸出一只手接走名单。对方说，他们一直不知道家人被带去了哪里。', effects: { stats: { stamina: -8, morale: 5 }, addFlags: ['returned-quarantine-list'] } },
+      { label: '烧掉名单取一点暖', hint: '精神 +2，燃料 +1', result: '盖章的纸卷曲发黑，只暖了几分钟。你决定不再替陌生人的名字负责。', effects: { stats: { morale: 2 }, shelter: { fuel: 1 } } },
+    ],
+  },
+  {
+    id: 'basement-signal', title: '地下室的敲击', phase: 'survival', minDay: 6, maxDay: 12,
+    text: '一楼配电间下方传来规律敲击。地下储藏室可能困着人，也可能只是松动的管道被水流撞击。',
+    options: [
+      { label: '带工具下去确认', hint: '需要工具箱，危险：高；燃料 +5', result: '里面没有人，只有一只被倒塌货架卡住的应急油桶。你拖着它爬回地面。', requirements: [{ item: 'toolkit', quantity: 1 }], danger: 48, effects: { shelter: { fuel: 5 }, stats: { stamina: -12 }, addFlags: ['basement-checked'] } },
+      { label: '隔门按原节奏回应', hint: '精神 +4，情报 +1', result: '敲击停了一分钟，然后改成了三短一长。无论下面是什么，它听见了你。', effects: { stats: { morale: 4 }, intel: 1, addFlags: ['basement-replied'] } },
+      { label: '用木板封住地下室门', hint: '木板 -1，完整度 +8', result: '最后一颗钉子敲下去后，声音仍持续了很久。', requirements: [{ item: 'wood-board', quantity: 1 }], effects: { inventory: { 'wood-board': -1 }, shelter: { integrity: 8 }, stats: { morale: -3 } } },
+      { label: '远离一楼', hint: '精神 -2', result: '到后半夜，敲击自己停了。你没有下楼确认原因。', effects: { stats: { morale: -2 } } },
+    ],
+  },
+  {
+    id: 'roof-beacon', title: '楼顶的求救灯', phase: 'survival', minDay: 7, maxDay: 13,
+    text: '对街楼顶有人用应急灯打出求救信号。他们缺水，却愿意交换一卷未拆封的防水布和一节电池。',
+    options: [
+      { label: '用绳索送过去两瓶水', hint: '水 -2，绳索不消耗；电池 +1，完整度 +5', result: '装水的袋子沿晾衣绳滑过街面。回来的包里有电池和一块能补窗的防水布。', requirements: [{ item: 'rope', quantity: 1 }, { item: 'water-bottle', quantity: 2 }], danger: 26, effects: { inventory: { 'water-bottle': -2, batteries: 1 }, shelter: { integrity: 5 }, stats: { morale: 6 }, addFlags: ['roof-trade-complete'] } },
+      { label: '只回复这里也缺水', hint: '精神 +2', result: '对面熄灯前回了一个“明白”。至少没人会继续浪费电等你。', effects: { stats: { morale: 2 } } },
+      { label: '保持熄灯，避免暴露', hint: '危险降低，精神 -4', result: '求救灯又闪了半小时。第二天，那座楼顶再没有亮过。', effects: { stats: { morale: -4 }, addFlags: ['ignored-roof-beacon'] } },
+    ],
+  },
+  {
     id: 'final-broadcast-window', title: '广播静默前的窗口', phase: 'survival', minDay: 8,
     text: '邱岚说城市的民用中继将在两天后彻底停机。若要把证据发到封锁线外，只剩一次稳定窗口。', npc: 'qiu-lan',
     options: [
