@@ -4,7 +4,7 @@ import { ITEMS } from '../game/data/items.ts';
 import { EVENTS } from '../game/data/events.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { endDay, exploreLocation, performPrepAction } from '../game/engine/actions.ts';
-import { claimDailyReward } from '../game/engine/daily.ts';
+import { claimDailyReward, continueAfterMissedWish } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { applyEffect, createInitialState, selectEvent } from '../game/engine/state.ts';
 import { chooseEvacuation } from '../game/engine/outcomes.ts';
@@ -94,7 +94,9 @@ test('无规划安全机器人也会在有限天数内抵达结局', () => {
     let guard = 0;
     while (state.phase !== 'ended' && guard < 50) {
       if (state.dailySettlement) {
-        state = claimDailyReward(state, 'quiet-rest').state;
+        state = state.dailySettlement.wishAchieved
+          ? claimDailyReward(state, 'quiet-rest').state
+          : continueAfterMissedWish(state).state;
       } else if (state.flags.includes('evacuation-choice-pending')) {
         state = chooseEvacuation(state, 'survivor').state;
       } else {

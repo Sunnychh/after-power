@@ -129,7 +129,7 @@ export function determineOutcome(state: GameState): Outcome | null {
 
 export function chooseEvacuation(state: GameState, route: 'survivor' | 'truth'): { state: GameState; ok: boolean; message?: string } {
   if (!state.flags.includes('evacuation-choice-pending')) return { state, ok: false, message: '撤离通道尚未开放。' };
-  if (state.dailySettlement) return { state, ok: false, message: '先领取最后一天的日结奖励。' };
+  if (state.dailySettlement) return { state, ok: false, message: '先确认最后一天的愿望结算。' };
   if (route === 'truth' && !state.flags.includes('truth-transmitted')) return { state, ok: false, message: '证据尚未成功送出，无法选择维修通道。' };
   const next = structuredClone(state);
   next.flags = next.flags.filter((flag) => flag !== 'evacuation-choice-pending');

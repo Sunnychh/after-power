@@ -1,6 +1,7 @@
 import { createFurnitureState } from '../data/furniture.ts';
 import type { GameState, MetaState, Outcome, SettingsState, StorageLike } from '../types.ts';
 import { expireItems } from './inventory.ts';
+import { ensureAssignedDailyWish } from './daily.ts';
 import {
   absoluteDay,
   DEFAULT_META,
@@ -81,7 +82,35 @@ function hasValidCore(state: Partial<GameState> | null): state is GameState {
 function removeStaleBatches(state: GameState): GameState {
   const next = structuredClone(state);
   next.inventory = expireItems(next.inventory, absoluteDay(next)).inventory;
-  return next;
+  const seenDailySettlements = new Set<string>();
+  const seenLogIds = new Set<string>();
+  next.logs = next.logs
+    .filter((log) => {
+      if (log.title !== '每日愿望结算') return true;
+      if (seenDailySettlements.has(log.dayLabel)) return false;
+      seenDailySettlements.add(log.dayLabel);
+      return true;
+    })
+    .map((log, index) => {
+      if (!seenLogIds.has(log.id)) {
+        seenLogIds.add(log.id);
+        return log;
+      }
+      const id = `${next.runId}-restored-log-${index + 1}`;
+      seenLogIds.add(id);
+      return { ...log, id };
+    });
+  next.feedback = next.feedback.filter((item) => item.label !== '愿望点');
+  if (next.dailySettlement && (next.dailySettlement.basePoints > 0 || next.dailySettlement.deadlinePoints > 0)) {
+    const obsoletePoints = next.dailySettlement.basePoints + next.dailySettlement.deadlinePoints;
+    next.dailyPoints = Math.max(0, next.dailyPoints - obsoletePoints);
+    next.dailySettlement.basePoints = 0;
+    next.dailySettlement.deadlinePoints = 0;
+    next.dailySettlement.deadlineId = 'open';
+    next.dailySettlement.deadlineAchieved = next.dailySettlement.wishAchieved;
+    next.dailySettlement.earnedPoints = next.dailySettlement.wishAchieved ? next.dailySettlement.wishPoints : 0;
+  }
+  return ensureAssignedDailyWish(next);
 }
 
 function migrateVersion2(state: Version2GameState): GameState | null {

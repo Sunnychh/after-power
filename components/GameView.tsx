@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { DIFFICULTY_MAP } from '../game/data/difficulties.ts';
-import { DAILY_DEADLINES, DAILY_DEADLINE_MAP, DAILY_REWARD_MAP, DAILY_WISH_MAP } from '../game/data/daily.ts';
+import { DAILY_REWARD_MAP, DAILY_WISH_MAP } from '../game/data/daily.ts';
 import { EVENT_MAP } from '../game/data/events.ts';
 import { formatItemEffects, STORE_DESCRIPTIONS, STORE_NAMES } from '../game/data/items.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
@@ -21,7 +21,7 @@ import {
 } from '../game/engine/actions.ts';
 import { furnitureActionDisabledReason, performFurnitureAction, type FurnitureActionId } from '../game/engine/furniture.ts';
 import { inventoryCount } from '../game/engine/inventory.ts';
-import { availableDailyWishes, chooseDailyDeadline, chooseDailyWish, claimDailyReward, dailyWishProgress } from '../game/engine/daily.ts';
+import { claimDailyReward, continueAfterMissedWish, dailyWishProgress } from '../game/engine/daily.ts';
 import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
 import { clamp } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
@@ -38,7 +38,7 @@ const TUTORIAL = [
   { title: '状态就在右下', body: '健康、水分、饱腹、精神、体力和避难所状态固定在右下。低于 40 会影响危险判定。' },
   { title: '钟点决定一天', body: '每个行动会推进游戏内时钟，到达日终自动进入夜间结算。休息两小时可以恢复体力。' },
   { title: '每件物资都标保存期', body: '易腐物会按入库批次显示“剩余 N 天”或“今天到期”，其他物资会标为长期保存；冰箱会逐批延长仍有效的保质期。' },
-  { title: '每天先许一个愿', body: '选择愿望和完成时限。达成时刻会被记录，夜间获得愿望点并亲手选择一项即时奖励。' },
+  { title: '每天一个明确愿望', body: '系统每天直接给出一件当天能完成的事。达成后夜间领取奖励；没有完成也不会扣除任何状态或点数。' },
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
 ];
 
@@ -63,9 +63,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const event = state.currentEventId ? EVENT_MAP[state.currentEventId] : undefined;
   const difficultyConfig = DIFFICULTY_MAP[state.difficulty];
   const activeWish = state.dailyPlan ? DAILY_WISH_MAP[state.dailyPlan.wishId] : undefined;
-  const activeDeadline = state.dailyPlan?.deadlineId ? DAILY_DEADLINE_MAP[state.dailyPlan.deadlineId] : undefined;
   const settlementWish = state.dailySettlement ? DAILY_WISH_MAP[state.dailySettlement.wishId] : undefined;
-  const settlementDeadline = state.dailySettlement ? DAILY_DEADLINE_MAP[state.dailySettlement.deadlineId] : undefined;
 
   const run = (result: EngineResult) => {
     const ok = onResult(result);
@@ -81,6 +79,14 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       ];
     }
     if (state.dailySettlement) {
+      if (!state.dailySettlement.wishAchieved) {
+        return [{
+          id: 'continue-after-wish',
+          label: '接受今日结果，继续',
+          hint: '未完成愿望没有惩罚，也不会消耗已有愿望点',
+          onSelect: () => run(continueAfterMissedWish(state)),
+        }];
+      }
       return state.dailySettlement.rewardChoices.map((rewardId) => {
         const reward = DAILY_REWARD_MAP[rewardId];
         return {
@@ -108,22 +114,6 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           onSelect: () => run(chooseEvacuation(state, 'truth')),
         },
       ];
-    }
-    if (!state.dailyPlan) {
-      return availableDailyWishes(state).map((wish) => ({
-        id: wish.id,
-        label: wish.name,
-        hint: `${wish.description} · 达成 +${wish.rewardPoints} 愿望点`,
-        onSelect: () => run(chooseDailyWish(state, wish.id)),
-      }));
-    }
-    if (!state.dailyPlan.deadlineId) {
-      return DAILY_DEADLINES.map((deadline) => ({
-        id: deadline.id,
-        label: deadline.name,
-        hint: `${deadline.description}${deadline.bonusPoints ? ` · 额外 +${deadline.bonusPoints}` : ''}`,
-        onSelect: () => run(chooseDailyDeadline(state, deadline.id)),
-      }));
     }
     if (event) {
       return event.options.map((option, index) => ({
@@ -241,14 +231,10 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const currentTitle = state.phase === 'ended'
     ? '本轮记录'
     : state.dailySettlement
-      ? '从今日结算中挑选一项奖励'
+      ? state.dailySettlement.wishAchieved ? '从今日结算中挑选一项奖励' : '确认今日愿望结果'
       : state.flags.includes('evacuation-choice-pending')
         ? '选择这一次如何离开'
-        : !state.dailyPlan
-          ? '写下今天最想完成的事'
-          : !state.dailyPlan.deadlineId
-            ? '为愿望设置完成时限'
-            : event
+        : event
               ? '必须作出选择'
               : mode === 'main'
                 ? '安排接下来的时间'
@@ -262,14 +248,12 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                         ? '家具、烹饪与制作'
                         : '选择交换方式';
   const actionSubtitle = state.dailySettlement
-    ? `愿望点余额 ${state.dailyPoints} · 必须选择一项后才能进入明天`
+    ? state.dailySettlement.wishAchieved
+      ? `愿望点余额 ${state.dailyPoints} · 选择一项今日奖励`
+      : `今日奖励 +0 · 未完成没有惩罚`
     : state.flags.includes('evacuation-choice-pending')
       ? '结局由你选择，不会因满足隐藏条件自动覆盖普通撤离'
-      : !state.dailyPlan
-        ? '选择愿望不耗时间，今天结束后重新选择'
-        : !state.dailyPlan.deadlineId
-          ? '选择时限不耗时间；按实际达成时刻结算'
-          : event
+      : event
             ? '选择将耗时 30 分钟并写入日志'
             : `当前 ${formatClock(state.clockMinutes)} · 距日终 ${formatDuration(minutesRemaining(state))}`;
 
@@ -295,17 +279,16 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <div className="ending-choices">{state.outcome.keyChoices.map((choice) => <span key={choice}>{choice}</span>)}</div>
               <div className="ending-memory"><span>本轮留下</span><strong>+{state.outcome.memoryEarned} 记忆</strong></div>
             </article>
-          ) : state.dailySettlement && settlementWish && settlementDeadline ? (
+          ) : state.dailySettlement && settlementWish ? (
             <article className="current-story daily-settlement-card">
               <span className="story-time">DAY SETTLEMENT / {state.dailySettlement.dayLabel}</span>
-              <h2>今天获得 {state.dailySettlement.earnedPoints} 愿望点</h2>
+              <h2>{state.dailySettlement.wishAchieved ? `愿望达成 · +${state.dailySettlement.earnedPoints} 点` : '愿望未达成 · 无惩罚'}</h2>
               <p>{state.dailySettlement.wishAchieved
                 ? `“${settlementWish.name}”在 ${formatClock(state.dailySettlement.completedAtMinutes!)} 达成。现在从下方挑一项奖励，剩余点数会保留到明天。`
-                : `“${settlementWish.name}”今天没有完成。平安度过一天仍会得到基础点数，明天可以重新选择。`}</p>
+                : `“${settlementWish.name}”今天没有完成。不会扣状态、资源或已有愿望点，确认后即可继续。`}</p>
               <dl className="settlement-breakdown">
-                <div><dt>平安度过</dt><dd>+{state.dailySettlement.basePoints}</dd></div>
                 <div><dt>今日愿望</dt><dd>{state.dailySettlement.wishAchieved ? `+${state.dailySettlement.wishPoints}` : '+0'}</dd></div>
-                <div><dt>{settlementDeadline.name}</dt><dd>{state.dailySettlement.deadlineAchieved ? `+${state.dailySettlement.deadlinePoints}` : '+0'}</dd></div>
+                <div><dt>未达成惩罚</dt><dd>0</dd></div>
                 <div><dt>当前余额</dt><dd>{state.dailyPoints}</dd></div>
               </dl>
               {state.dailySettlement.finalNight && <span className="settlement-final-note">领取后，撤离通道会要求你亲自选择普通路线或证据路线。</span>}
@@ -317,18 +300,6 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <p>{state.flags.includes('truth-transmitted')
                 ? '证据已经送出，但这不会替你决定结局。你可以跟随公开撤离车队，也可以和同伴护送设备走维修通道。'
                 : '公开撤离通道会开放四小时。证据路线没有建立，活着离开仍然是一个完整的选择。'}</p>
-            </article>
-          ) : !state.dailyPlan ? (
-            <article className="current-story daily-plan-card">
-              <span className="story-time">MORNING PROMISE / STEP 1 OF 2</span>
-              <h2>今天想完成哪一件事？</h2>
-              <p>每天只选一个愿望。完成时刻会被记录，夜间根据愿望和时限发放愿望点，再由你亲手挑一项即时奖励。</p>
-            </article>
-          ) : !state.dailyPlan.deadlineId ? (
-            <article className="current-story daily-plan-card">
-              <span className="story-time">MORNING PROMISE / STEP 2 OF 2</span>
-              <h2>{activeWish?.name}</h2>
-              <p>愿望已经写下。现在选择一个完成时限：越早兑现，夜间得到的愿望点越多；不限时也不会受到惩罚。</p>
             </article>
           ) : event ? (
             <article className="current-story" tabIndex={-1}>
@@ -365,19 +336,19 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             <span className="section-kicker">DAILY PROMISE</span>
             <h2>今日愿望 · {state.dailyPoints} 点</h2>
             {state.dailySettlement ? (
-              <p>今天已经结算。请在下方行动区领取一项奖励，未使用的愿望点会保留。</p>
+              <p>{state.dailySettlement.wishAchieved ? '今天的愿望已经达成，请在下方领取一项奖励。' : '今天的愿望没有完成；没有惩罚，确认后继续。'}</p>
             ) : activeWish ? (
               <>
                 <p><strong>{activeWish.name}</strong><br />{activeWish.description}</p>
                 <dl className="daily-progress">
                   <div><dt>进度</dt><dd>{dailyWishProgress(state)}</dd></div>
-                  <div><dt>时限</dt><dd>{activeDeadline?.name ?? '尚未设置'}</dd></div>
+                  <div><dt>达成奖励</dt><dd>+{activeWish.rewardPoints} 愿望点</dd></div>
                 </dl>
               </>
             ) : state.flags.includes('evacuation-choice-pending') ? (
               <p>最后一天已经完成，等待你决定撤离路线。</p>
             ) : (
-              <p>先从下方选择今天的愿望与完成时限。</p>
+              <p>今日愿望正在生成；重新载入存档即可恢复。</p>
             )}
           </section>
           <section>

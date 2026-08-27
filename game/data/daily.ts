@@ -1,4 +1,4 @@
-import type { DailyDeadlineId, DailyRewardId, DailyWishId, Phase } from '../types.ts';
+import type { DailyRewardId, DailyWishId, Phase } from '../types.ts';
 
 export interface DailyWishDefinition {
   id: DailyWishId;
@@ -7,14 +7,6 @@ export interface DailyWishDefinition {
   description: string;
   rewardPoints: number;
   matchingActions: string[];
-}
-
-export interface DailyDeadlineDefinition {
-  id: DailyDeadlineId;
-  name: string;
-  description: string;
-  cutoffMinutes?: number;
-  bonusPoints: number;
 }
 
 export interface DailyRewardDefinition {
@@ -78,16 +70,6 @@ export const DAILY_WISHES: DailyWishDefinition[] = [
 export const DAILY_WISH_MAP: Record<DailyWishId, DailyWishDefinition> = Object.fromEntries(
   DAILY_WISHES.map((wish) => [wish.id, wish]),
 ) as Record<DailyWishId, DailyWishDefinition>;
-
-export const DAILY_DEADLINES: DailyDeadlineDefinition[] = [
-  { id: 'early', name: '18:00 前完成', description: '时间紧，但会多得到 2 愿望点。', cutoffMinutes: 18 * 60, bonusPoints: 2 },
-  { id: 'steady', name: '20:00 前完成', description: '留出一些余量，额外得到 1 愿望点。', cutoffMinutes: 20 * 60, bonusPoints: 1 },
-  { id: 'open', name: '不设时限', description: '只计算愿望本身，适合先熟悉今天的局势。', bonusPoints: 0 },
-];
-
-export const DAILY_DEADLINE_MAP: Record<DailyDeadlineId, DailyDeadlineDefinition> = Object.fromEntries(
-  DAILY_DEADLINES.map((deadline) => [deadline.id, deadline]),
-) as Record<DailyDeadlineId, DailyDeadlineDefinition>;
 
 export const DAILY_REWARDS: DailyRewardDefinition[] = [
   { id: 'quiet-rest', name: '留一小时给自己', description: '不再处理清单。体力 +12，精神 +6。', cost: 1 },

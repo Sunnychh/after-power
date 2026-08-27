@@ -19,6 +19,7 @@ import type {
 import { addItem, inventoryCount, removeItem } from './inventory.ts';
 import { normalizeSeed, randomInt, seededPick } from './rng.ts';
 import { PREP_DAY_START } from './time.ts';
+import { createAssignedDailyPlan } from './wish-plan.ts';
 
 export const GAME_SAVE_KEY = 'after-power-game-v3';
 export const PREVIOUS_GAME_SAVE_KEY = 'after-power-game-v2';
@@ -44,7 +45,7 @@ export function dayLabel(state: GameState): string {
 
 export function createLog(state: GameState, title: string, body: string, tone: LogEntry['tone'] = 'story'): LogEntry {
   return {
-    id: `${state.runId}-${state.logs.length + 1}`,
+    id: `${state.runId}-log-${state.logs.length + 1}`,
     dayLabel: dayLabel(state),
     title,
     body,
@@ -117,6 +118,7 @@ export function createInitialState(
     `你收到一条来自旧同事的加密消息：七天后，这座城市会以传染病为由全面封锁。消息最后只有一句——别等官方通知。本轮采用${difficultyConfig.name}难度。`,
     'system',
   )];
+  state.dailyPlan = createAssignedDailyPlan(state);
   return state;
 }
 

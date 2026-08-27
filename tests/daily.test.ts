@@ -2,97 +2,107 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ITEM_MAP } from '../game/data/items.ts';
 import { endDay, performPrepAction } from '../game/engine/actions.ts';
-import { chooseDailyDeadline, chooseDailyWish, claimDailyReward } from '../game/engine/daily.ts';
+import { claimDailyReward, continueAfterMissedWish, ensureAssignedDailyWish } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { createInitialState } from '../game/engine/state.ts';
 import { PREP_DAY_START } from '../game/engine/time.ts';
+import type { DailyWishId } from '../game/types.ts';
 
-function plannedPrep(wish: 'prep-income' | 'prep-home' | 'prep-contact', deadline: 'early' | 'steady' | 'open' = 'open') {
-  const state = createInitialState(`daily-${wish}-${deadline}`);
+function plannedPrep(wishId: DailyWishId) {
+  const state = createInitialState(`daily-${wishId}`);
   state.currentEventId = undefined;
-  const selected = chooseDailyWish(state, wish);
-  assert.equal(selected.ok, true);
-  const timed = chooseDailyDeadline(selected.state, deadline);
-  assert.equal(timed.ok, true);
-  return timed.state;
+  state.dailyPlan = undefined;
+  return ensureAssignedDailyWish(state, wishId);
 }
 
-test('未选择愿望与时限时不能偷偷执行行动', () => {
-  const state = createInitialState('daily-block');
-  state.currentEventId = undefined;
-  assert.equal(performPrepAction(state, 'work').ok, false);
-  const wish = chooseDailyWish(state, 'prep-income');
-  assert.equal(performPrepAction(wish.state, 'work').ok, false);
+test('开局直接指定一项当天可完成的愿望，不要求额外选择或设置时限', () => {
+  const state = createInitialState('daily-assigned');
+  assert.ok(state.dailyPlan);
+  assert.equal(state.dailyPlan?.dayKey, 'prep:1');
+  assert.equal(state.dailyPlan?.deadlineId, 'open');
+
+  state.money = 0;
+  state.dailyPlan = undefined;
+  const reassigned = ensureAssignedDailyWish(state);
+  assert.notEqual(reassigned.dailyPlan?.wishId, 'prep-home');
 });
 
-test('愿望记录首次达成时刻，日终逐项发点并必须选择奖励', () => {
-  const state = plannedPrep('prep-income', 'early');
+test('愿望首次达成后日终只发愿望奖励，不再固定发放每日 +1', () => {
+  const state = plannedPrep('prep-income');
   const worked = performPrepAction(state, 'work');
   assert.equal(worked.ok, true);
   assert.equal(worked.state.dailyPlan?.completedAtMinutes, PREP_DAY_START + 240);
+
   const settled = endDay(worked.state);
   assert.equal(settled.ok, true);
   assert.equal(settled.state.dailySettlement?.wishAchieved, true);
-  assert.equal(settled.state.dailySettlement?.deadlineAchieved, true);
-  assert.equal(settled.state.dailySettlement?.earnedPoints, 5);
-  assert.equal(settled.state.dailyPoints, 5);
-  assert.equal(performPrepAction(settled.state, 'rest').ok, false);
-
-  settled.state.dailySettlement!.rewardChoices = ['quiet-rest', 'water-cache', 'food-cache'];
-  const rewarded = claimDailyReward(settled.state, 'water-cache');
-  assert.equal(rewarded.ok, true);
-  assert.equal(rewarded.state.dailyPoints, 3);
-  assert.equal(inventoryCount(rewarded.state.inventory, 'water-bottle'), 1);
-  assert.equal(rewarded.state.shelter.water, settled.state.shelter.water + 2);
-  assert.equal(rewarded.state.dailySettlement, undefined);
+  assert.equal(settled.state.dailySettlement?.basePoints, 0);
+  assert.equal(settled.state.dailySettlement?.earnedPoints, 2);
+  assert.equal(settled.state.dailyPoints, 2);
+  assert.equal(settled.state.feedback.some((item) => item.label === '愿望点'), false);
 });
 
-test('刚好抵达日终的最后一个行动仍计入愿望，待领奖时不能重复结算', () => {
-  const state = plannedPrep('prep-income', 'open');
+test('未完成愿望奖励为零、没有惩罚，并可直接继续到自动指定的新愿望', () => {
+  const state = plannedPrep('prep-income');
+  state.dailyPoints = 4;
+  const settled = endDay(state).state;
+  assert.equal(settled.dailySettlement?.wishAchieved, false);
+  assert.equal(settled.dailySettlement?.earnedPoints, 0);
+  assert.equal(settled.dailyPoints, 4);
+  assert.ok(settled.logs.some((log) => log.body.includes('没有获得奖励，也没有任何损失')));
+
+  const continued = continueAfterMissedWish(settled);
+  assert.equal(continued.ok, true);
+  assert.equal(continued.state.dailyPoints, 4);
+  assert.equal(continued.state.dailySettlement, undefined);
+  assert.equal(continued.state.dailyPlan?.dayKey, 'prep:2');
+});
+
+test('刚好抵达日终的最后一个行动仍计入愿望，待处理日结不能重复结算', () => {
+  const state = plannedPrep('prep-income');
   state.clockMinutes = 18 * 60;
   const settled = performPrepAction(state, 'work');
   assert.equal(settled.ok, true);
   assert.equal(settled.state.prepDay, 2);
   assert.equal(settled.state.dailySettlement?.wishAchieved, true);
   assert.equal(settled.state.dailySettlement?.completedAtMinutes, 22 * 60);
-  assert.equal(settled.state.dailyPoints, 3);
+  assert.equal(settled.state.dailyPoints, 2);
 
   const snapshot = structuredClone(settled.state);
   const duplicate = endDay(settled.state);
   assert.equal(duplicate.ok, false);
   assert.deepEqual(duplicate.state, snapshot);
+  assert.equal(duplicate.state.logs.filter((log) => log.title === '每日愿望结算').length, 1);
 });
 
-test('恰好在时限分钟完成算成功，晚一分钟则不加时限分', () => {
-  const exact = plannedPrep('prep-income', 'steady');
-  exact.clockMinutes = 16 * 60;
-  const exactWork = performPrepAction(exact, 'work');
-  assert.equal(exactWork.state.dailyPlan?.completedAtMinutes, 20 * 60);
-  assert.equal(endDay(exactWork.state).state.dailySettlement?.deadlineAchieved, true);
-
-  const late = plannedPrep('prep-income', 'steady');
-  late.clockMinutes = 16 * 60 + 1;
-  const lateWork = performPrepAction(late, 'work');
-  assert.equal(lateWork.state.dailyPlan?.completedAtMinutes, 20 * 60 + 1);
-  const lateSettlement = endDay(lateWork.state).state.dailySettlement;
-  assert.equal(lateSettlement?.deadlineAchieved, false);
-  assert.equal(lateSettlement?.earnedPoints, 3);
-});
-
-test('奖励点不足时状态完全不变，且每日总有一项 1 点奖励', () => {
-  const state = plannedPrep('prep-contact', 'open');
-  const settled = endDay(state).state;
-  assert.equal(settled.dailyPoints, 1);
-  assert.ok(settled.dailySettlement?.rewardChoices.includes('quiet-rest'));
+test('达成后可以选奖励；点数不足时状态完全不变', () => {
+  const state = plannedPrep('prep-income');
+  const settled = endDay(performPrepAction(state, 'work').state).state;
+  settled.dailySettlement!.rewardChoices = ['quiet-rest', 'repair-kit', 'food-cache'];
   const snapshot = structuredClone(settled);
   const blocked = claimDailyReward(settled, 'repair-kit');
   assert.equal(blocked.ok, false);
   assert.deepEqual(blocked.state, snapshot);
-  assert.equal(claimDailyReward(settled, 'quiet-rest').ok, true);
+
+  const rewarded = claimDailyReward(settled, 'quiet-rest');
+  assert.equal(rewarded.ok, true);
+  assert.equal(rewarded.state.dailyPoints, 1);
+  assert.equal(rewarded.state.dailySettlement, undefined);
+  assert.equal(rewarded.state.dailyPlan?.dayKey, 'prep:2');
+});
+
+test('日结日志只出现一次，并排在下一天日志之前', () => {
+  const state = plannedPrep('prep-contact');
+  const settled = endDay(state).state;
+  const settlementIndex = settled.logs.findIndex((log) => log.title === '每日愿望结算');
+  const nextDayIndex = settled.logs.findIndex((log) => log.title === '一天结束');
+  assert.equal(settled.logs.filter((log) => log.title === '每日愿望结算').length, 1);
+  assert.ok(settlementIndex >= 0 && nextDayIndex > settlementIndex);
+  assert.equal(new Set(settled.logs.map((log) => log.id)).size, settled.logs.length);
 });
 
 test('灾前进入新一天也会移除已经腐烂的批次', () => {
-  const state = plannedPrep('prep-contact', 'open');
+  const state = plannedPrep('prep-contact');
   state.inventory = addItem(state.inventory, ITEM_MAP['fresh-apples'], 1, 1);
   state.inventory['fresh-apples'][0].expiresOn = 1;
   const settled = endDay(state).state;

@@ -72,16 +72,18 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
       next.survivalDay = 1;
       next.clockMinutes = SURVIVAL_DAY_START;
       next.weather = weatherForDay(next, 1);
-      next.logs = [...next.logs, createLog(next, '00:17 · 全城停电', '路灯沿街依次熄灭。手机信号只剩一格，窗外响起第一辆封锁车的扩音器。你锁上门，灾前准备到此为止。', 'bad')];
       next.currentEventId = selectEvent(next)?.id;
+      next = createDailySettlement(beforeNight, next, false);
+      next.logs = [...next.logs, createLog(next, '00:17 · 全城停电', '路灯沿街依次熄灭。手机信号只剩一格，窗外响起第一辆封锁车的扩音器。你锁上门，灾前准备到此为止。', 'bad')];
     } else {
       next.prepDay += 1;
       next.clockMinutes = PREP_DAY_START;
       next.currentEventId = selectEvent(next)?.id;
+      next = createDailySettlement(beforeNight, next, false);
       next.logs = [...next.logs, createLog(next, '一天结束', `距离封锁还有 ${8 - next.prepDay} 天。你重新核对清单，把缺口留到明天。`, 'system')];
     }
     next = removeExpiredForCurrentDay(next);
-    return { state: createDailySettlement(beforeNight, next, false), ok: true };
+    return { state: next, ok: true };
   }
   if (state.phase !== 'survival') return { state, ok: false, message: '本轮已经结束。' };
 
@@ -160,9 +162,10 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   next.survivalDay += 1;
   next.clockMinutes = SURVIVAL_DAY_START;
   next.weather = weatherForDay(next, next.survivalDay);
+  next = createDailySettlement(beforeNight, next, false);
   next = removeExpiredForCurrentDay(next);
   next.currentEventId = selectEvent(next)?.id;
-  return { state: createDailySettlement(beforeNight, next, false), ok: true };
+  return { state: next, ok: true };
 }
 
 function removeExpiredForCurrentDay(state: GameState): GameState {
