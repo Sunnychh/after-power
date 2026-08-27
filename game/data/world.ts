@@ -61,7 +61,7 @@ export const LOCATIONS: LocationDefinition[] = [
     district: '旧城南巷 · 1.1km',
     risk: 42,
     description: '橱窗碎了，最重的东西反而留到了最后。楼上的脚步不太规律。',
-    loot: ['duct-tape', 'wood-board', 'batteries', 'copper-wire', 'gloves'],
+    loot: ['duct-tape', 'wood-board', 'metal-sheet', 'batteries', 'copper-wire', 'gloves'],
     uniqueItem: 'station-key',
   },
   {

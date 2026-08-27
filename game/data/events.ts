@@ -132,6 +132,7 @@ export const EVENTS: GameEvent[] = [
     text: '傍晚，封锁线方向传来连续的金属碰撞。陈檬在楼道里逐户提醒：两天内会有大批感染者沿主路移动。', chain: { id: 'horde', step: 1 },
     options: [
       { label: '用木板补住楼道窗', hint: '木板 -1，完整度 +10', result: '钉锤声把整栋楼都叫醒了。有人开始跟着加固自家门。', requirements: [{ item: 'wood-board', quantity: 1 }], effects: { inventory: { 'wood-board': -1 }, shelter: { integrity: 10, reinforcement: 1 }, addFlags: ['horde-prepared'] } },
+      { label: '用钢板封住底层入口', hint: '薄钢板 -1，完整度 +18，加固 +2', result: '钢板压住了最薄弱的玻璃门。撞击会传进来，但不再直接落到门框上。', requirements: [{ item: 'metal-sheet', quantity: 1 }], effects: { inventory: { 'metal-sheet': -1 }, shelter: { integrity: 18, reinforcement: 2 }, addFlags: ['horde-prepared'] } },
       { label: '搬家具抵住门', hint: '体力 -14，完整度 +6', result: '柜子把过道堵得只剩一道缝。至少今晚能睡。', effects: { stats: { stamina: -14 }, shelter: { integrity: 6 }, addFlags: ['horde-braced'] } },
       { label: '把体力留给逃跑', hint: '精神 -5', result: '你把逃生包放到门边，却发现整栋楼没有真正的逃生路线。', effects: { stats: { morale: -5 } } },
     ],

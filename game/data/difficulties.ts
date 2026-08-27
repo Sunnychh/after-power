@@ -74,7 +74,7 @@ export const DIFFICULTIES: DifficultyDefinition[] = [
     id: 'hard',
     name: '艰难',
     tagline: '紧缺开局 · 危险加剧',
-    description: '现金、负重和探索产出都更紧，重复搜刮可能空手而归。',
+    description: '现金、负重和探索产出都更紧；封锁第 3、5、8、11、13 夜会发生可预告的避难所冲击。',
     startMoney: 290,
     carryCapacity: 58,
     shoppingCarryCapacity: 9,

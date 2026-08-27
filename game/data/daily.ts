@@ -63,7 +63,7 @@ export const DAILY_WISHES: DailyWishDefinition[] = [
     name: '今晚把门守稳',
     description: '修缮或加固避难所，也可以启动备用电源。',
     rewardPoints: 2,
-    matchingActions: ['survival:repair', 'survival:barricade', 'survival:generator'],
+    matchingActions: ['survival:repair', 'survival:barricade', 'survival:plate', 'survival:generator'],
   },
 ];
 

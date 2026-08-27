@@ -230,7 +230,7 @@ export function performPrepAction(state: GameState, action: PrepActionId): Resul
   return completeTimedAction(next, spec.minutes, `prep:${action}`);
 }
 
-export type SurvivalActionId = 'rest' | 'repair' | 'barricade' | 'radio' | 'generator' | 'purify' | 'drink-storage' | 'trade-water' | 'trade-med' | 'truth';
+export type SurvivalActionId = 'rest' | 'repair' | 'barricade' | 'plate' | 'radio' | 'generator' | 'purify' | 'drink-storage' | 'trade-water' | 'trade-med' | 'truth';
 
 export function debtPaymentAmount(state: GameState, mode: 'minimum' | 'all'): number {
   if (!state.debt) return 0;
@@ -268,6 +268,7 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     rest: 120,
     repair: 120,
     barricade: 120,
+    plate: 150,
     radio: state.shelter.power >= 2 || inventoryCount(state.inventory, 'batteries') > 0 ? 60 : 120,
     generator: 30,
     purify: 90,
@@ -299,6 +300,11 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     if (inventoryCount(next.inventory, 'wood-board') < 1) return { state, ok: false, message: '缺少木板 ×1' };
     title = '加固门窗'; body = '木板横在门框上，钉子穿过两层旧木料。';
     next = applyEffect(next, { inventory: { 'wood-board': -1 }, shelter: { integrity: 20, reinforcement: 1 }, stats: { stamina: -9 } }, title);
+  } else if (action === 'plate') {
+    if (inventoryCount(next.inventory, 'metal-sheet') < 1) return { state, ok: false, message: '缺少薄钢板 ×1' };
+    if (inventoryCount(next.inventory, 'toolkit') < 1) return { state, ok: false, message: '安装钢板需要家用工具箱。' };
+    title = '钢板封固'; body = '你在门框上钻出六个固定点，把薄钢板压住锁舌和合页。它很重，但下一次撞击会先落在钢面上。';
+    next = applyEffect(next, { inventory: { 'metal-sheet': -1 }, shelter: { integrity: 32, reinforcement: 2 }, stats: { stamina: -11 } }, title);
   } else if (action === 'radio') {
     if (inventoryCount(next.inventory, 'radio') < 1) return { state, ok: false, message: '缺少短波收音机。' };
     const newContact = nextBroadcastContact(next);

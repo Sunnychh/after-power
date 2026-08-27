@@ -346,6 +346,7 @@ kbd { border: 1px solid #40513b; color: var(--muted); padding: 3px 7px; font-siz
 .debt-panel { border-left: 2px solid #bd665b; padding-left: 12px !important; }.debt-panel h2 { color: #e4877b; }.debt-panel p { color: #a9827d !important; }
 .risk-guide { border-left: 2px solid #73adc1; padding-left: 12px !important; }.risk-guide h2 { color: #9bc7d6; }.risk-guide p strong { color: #d7eef5; }
 .isolation-panel { border-left: 2px solid #c58acf; padding-left: 12px !important; }.isolation-panel h2 { color: #d6a0df; }.isolation-panel p { color: #a98daf !important; }
+.siege-panel { border-left: 2px solid #c99654; padding-left: 12px !important; }.siege-panel h2 { color: #e3b875; }.siege-panel p { color: #ae987a !important; }
 
 /* Action dock */
 .action-panel { min-width: 0; position: relative; padding: 13px clamp(16px, 3vw, 38px) 16px; background: transparent; }

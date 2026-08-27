@@ -34,6 +34,14 @@ function deathOutcome(state: GameState): Outcome {
         memoryEarned, keyChoices: ['尸潮之夜避难所失守', `加固等级 ${state.shelter.reinforcement}`],
       };
     }
+    const siegeDay = state.flags.includes(`siege-wave:${state.survivalDay}`) ? state.survivalDay : undefined;
+    if (siegeDay !== undefined) {
+      return {
+        id: 'death', variantId: `death-siege-${siegeDay}`, title: '加固层在这一波之后沉默',
+        text: `第 ${siegeDay} 夜的撞击一阵接着一阵。门上的材料已经替你吸收了能承受的部分，剩余冲击仍沿着松动的门框传进墙体。最后一次变形后，避难所再也没有恢复原状。`,
+        memoryEarned, keyChoices: [`困难波次第 ${siegeDay} 夜`, `加固等级 ${state.shelter.reinforcement}`, '避难所完整度归零'],
+      };
+    }
     if (state.weather === '暴雨' || state.weather === '酸雨') {
       return {
         id: 'death', variantId: 'death-weather-collapse', title: '雨水从最后一道裂缝灌入',

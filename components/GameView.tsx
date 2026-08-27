@@ -39,6 +39,7 @@ import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisab
 import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
 import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, EXPLORATION_SKILL_LABELS, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
+import { nextSiegeWave, siegeDamage, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
@@ -315,6 +316,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         furnitureChoice('electric-hotpot', '电火锅 · 随机料理'),
         { id: 'drink-storage', label: '从储水装置取水', hint: '20分钟 · 储水 -4 · 水分 +26', disabledReason: timedReason(state, 20) ?? (state.shelter.water < 4 ? '储水不足 4' : null), onSelect: () => run(performSurvivalAction(state, 'drink-storage')) },
         { id: 'barricade', label: '木板加固', hint: '2小时 · 木板 -1 · 完整度 +20', disabledReason: timedReason(state, 120) ?? (inventoryCount(state.inventory, 'wood-board') < 1 ? '缺少木板 ×1' : null), onSelect: () => run(performSurvivalAction(state, 'barricade')) },
+        { id: 'plate', label: '钢板封固', hint: '2小时30分 · 薄钢板 -1 · 完整度 +32 · 加固 +2', disabledReason: timedReason(state, 150) ?? (inventoryCount(state.inventory, 'metal-sheet') < 1 ? '缺少薄钢板 ×1' : inventoryCount(state.inventory, 'toolkit') < 1 ? '需要家用工具箱' : null), onSelect: () => run(performSurvivalAction(state, 'plate')) },
         { id: 'purify', label: '处理雨水', hint: '1小时30分 · 净水片、滤布、储水 6 → 瓶装水 2', disabledReason: timedReason(state, 90) ?? (inventoryCount(state.inventory, 'purifier-tablet') < 1 ? '缺少净水片' : inventoryCount(state.inventory, 'filter-cloth') < 1 ? '缺少活性炭滤布' : state.shelter.water < 6 ? '储水不足 6' : null), onSelect: () => run(performSurvivalAction(state, 'purify')) },
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
       ];
@@ -459,7 +461,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <h2>{state.phase === 'prep' ? `清单还剩 ${8 - state.prepDay} 天` : `封锁第 ${state.survivalDay} 天，门外仍有声音`}</h2>
               <p>{state.phase === 'prep'
                 ? '城市还在照常运转。每一次出门都能换来钱、物资、情报或一段关系，但今天的时间只够做其中几件。'
-                : state.survivalDay === 8 ? '尸潮已经抵达主路。今天的任何噪声、加固和盟友都会影响门能撑多久。' : '行动会推进游戏内时钟。抵达日终后自动结算饱腹、水分、天气、冰箱、供电与伤病，也可以提前就寝。'}</p>
+                : siegeWaveForDay(state) ? `${siegeWaveForDay(state)!.warning}今晚将承受 ${siegeWaveForDay(state)!.pressure} 点冲击；当前加固预计吸收 ${Math.min(siegeWaveForDay(state)!.pressure, siegeMitigation(state))} 点。` : state.survivalDay === 8 ? '尸潮已经抵达主路。今天的任何噪声、加固和盟友都会影响门能撑多久。' : '行动会推进游戏内时钟。抵达日终后自动结算饱腹、水分、天气、冰箱、供电与伤病，也可以提前就寝。'}</p>
             </article>
           )}
 
@@ -519,6 +521,22 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <dl className="daily-progress"><div><dt>最低还款</dt><dd>¥{Math.min(state.debt.balance, state.debt.minimumPayment)}</dd></div><div><dt>累计已还</dt><dd>¥{state.debt.totalRepaid}</dd></div></dl>
             </section>
           )}
+          {state.phase === 'survival' && state.difficulty === 'hard' && nextSiegeWave(state) && (() => {
+            const wave = nextSiegeWave(state)!;
+            const mitigation = siegeMitigation(state);
+            return (
+              <section className="siege-panel">
+                <span className="section-kicker">HARD MODE SIEGE</span>
+                <h2>{wave.day === state.survivalDay ? `今夜 · ${wave.name}` : `下一波 · 第 ${wave.day} 夜`}</h2>
+                <p>{wave.warning}波次固定发生，方便提前安排材料和维修时间。</p>
+                <dl className="daily-progress">
+                  <div><dt>冲击</dt><dd>{wave.pressure}</dd></div>
+                  <div><dt>加固吸收</dt><dd>{Math.min(wave.pressure, mitigation)}</dd></div>
+                  <div><dt>预计损伤</dt><dd>{siegeDamage(state, wave)}</dd></div>
+                </dl>
+              </section>
+            );
+          })()}
           {state.phase === 'survival' && (
             <section className="risk-guide">
               <span className="section-kicker">DANGER CHECK</span>

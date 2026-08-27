@@ -6,6 +6,7 @@ import { createDailySettlement, dailyActionBlockedReason, recordDailyAction } fr
 import { determineOutcome, finishRun } from './outcomes.ts';
 import { expireItems, inventoryCount, removeItem } from './inventory.ts';
 import { assessDebtNight } from './loan.ts';
+import { resolveHardSiegeWave } from './siege.ts';
 import { absoluteDay, addFlag, applyEffect, createLog, selectEvent, weatherForDay } from './state.ts';
 import { dayEndMinutes, PREP_DAY_START, SURVIVAL_DAY_START } from './time.ts';
 
@@ -190,6 +191,8 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
     `基础消耗：饱腹 -${foodDrain}，水分 -${waterDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}供电策略：${policy.name}，电力 ${powerBefore} → ${next.shelter.power}。${powerText}${fridgeText}`,
     next.stats.health < 35 ? 'bad' : 'system',
   )];
+
+  next = resolveHardSiegeWave(next);
 
   const nightOutcome = determineOutcome(next);
   if (nightOutcome) return { state: finishRun(next, nightOutcome), ok: true };

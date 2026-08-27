@@ -9,6 +9,7 @@ import { absoluteDay } from '../game/engine/state.ts';
 import type { GameState } from '../game/types.ts';
 import { POWER_POLICY_MAP } from '../game/data/power.ts';
 import { projectedPowerNights } from '../game/engine/power.ts';
+import { siegeMitigation } from '../game/engine/siege.ts';
 
 export function InventoryPanel({ state, open, onClose, onUse }: {
   state: GameState;
@@ -82,6 +83,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
           <dl className="shelter-list">
             <div><dt>结构完整度</dt><dd>{state.shelter.integrity} / 100</dd></div>
             <div><dt>门窗加固</dt><dd>等级 {state.shelter.reinforcement}</dd></div>
+            {state.difficulty === 'hard' && <div><dt>波次吸收</dt><dd>{siegeMitigation(state)} 点 / 波</dd></div>}
             <div><dt>可用储水</dt><dd>{state.shelter.water} 单位</dd></div>
             <div><dt>备用电力</dt><dd>{state.shelter.power} 单位</dd></div>
             <div><dt>燃料储备</dt><dd>{state.shelter.fuel} 单位</dd></div>
