@@ -2,17 +2,20 @@
 
 import { ABILITIES } from '../game/data/world.ts';
 import { DIFFICULTIES } from '../game/data/difficulties.ts';
-import type { AbilityId, DifficultyId, MetaState } from '../game/types.ts';
+import { LOANS } from '../game/data/loans.ts';
+import type { AbilityId, DifficultyId, LoanTier, MetaState } from '../game/types.ts';
 
-export function TitleScreen({ hasSave, seed, difficulty, autoRations, meta, onSeedChange, onDifficultyChange, onAutoRationsChange, onStart, onContinue, onGuide, onSettings, onUnlock }: {
+export function TitleScreen({ hasSave, seed, difficulty, autoRations, loanTier, meta, onSeedChange, onDifficultyChange, onAutoRationsChange, onLoanTierChange, onStart, onContinue, onGuide, onSettings, onUnlock }: {
   hasSave: boolean;
   seed: string;
   difficulty: DifficultyId;
   autoRations: boolean;
+  loanTier: LoanTier;
   meta: MetaState;
   onSeedChange: (seed: string) => void;
   onDifficultyChange: (difficulty: DifficultyId) => void;
   onAutoRationsChange: (enabled: boolean) => void;
+  onLoanTierChange: (tier: LoanTier) => void;
   onStart: () => void;
   onContinue: () => void;
   onGuide: () => void;
@@ -52,6 +55,18 @@ export function TitleScreen({ hasSave, seed, difficulty, autoRations, meta, onSe
               </button>
             ))}
           </div>
+        </section>
+        <section className="loan-picker" aria-labelledby="loan-title">
+          <div className="difficulty-heading"><span>开局借贷</span><small id="loan-title">额外现金会换来真实的末日债务</small></div>
+          <div className="loan-grid">
+            {LOANS.map((loan) => (
+              <button key={loan.id} type="button" className={loanTier === loan.id ? 'selected' : ''} aria-pressed={loanTier === loan.id} onClick={() => onLoanTierChange(loan.id)}>
+                <span><strong>{loan.name}</strong>{loan.cashAdvance > 0 && <b>+¥{loan.cashAdvance}</b>}</span>
+                <small>{loan.description}</small>
+              </button>
+            ))}
+          </div>
+          {loanTier !== 'none' && <p className="loan-warning">借款不是免费开局奖励：封锁后可花 30 分钟还款；逾期会增加余额、降低精神、损伤门锁，并提高所有危险判定。</p>}
         </section>
         <label className="run-option">
           <span><strong>夜间自动补充</strong><small>低于阈值时自动使用背包食物、饮水或水箱储水；关闭后由你自行安排。</small></span>

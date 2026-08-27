@@ -20,6 +20,16 @@ test('存档可完整恢复待处理事件与随机状态', () => {
   assert.deepEqual(loadGame(storage), state);
 });
 
+test('存档可恢复贷款余额、还款与催收进度', () => {
+  const storage = new MemoryStorage();
+  const state = createInitialState('debt-save', [], 0, 'normal', false, 'bridge');
+  state.debt!.balance = 311;
+  state.debt!.missedCollections = 2;
+  state.debt!.totalRepaid = 77;
+  saveGame(storage, state);
+  assert.deepEqual(loadGame(storage)?.debt, state.debt);
+});
+
 test('损坏或未知版本存档安全回退', () => {
   const storage = new MemoryStorage();
   storage.setItem(GAME_SAVE_KEY, '{bad json');

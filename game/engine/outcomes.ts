@@ -140,7 +140,12 @@ export function chooseEvacuation(state: GameState, route: 'survivor' | 'truth'):
 }
 
 export function finishRun(state: GameState, outcome: Outcome): GameState {
-  return { ...state, phase: 'ended', outcome, currentEventId: undefined, dailyPlan: undefined, dailySettlement: undefined };
+  const resolvedOutcome = state.debt && state.debt.balance > 0 ? {
+    ...outcome,
+    text: `${outcome.text} 离开封锁区时，那笔 ¥${state.debt.balance} 的债务仍在催收名单上；活下来并没有让合同自动消失。`,
+    keyChoices: [...outcome.keyChoices, `带着 ¥${state.debt.balance} 未结债务离开`],
+  } : outcome;
+  return { ...state, phase: 'ended', outcome: resolvedOutcome, currentEventId: undefined, dailyPlan: undefined, dailySettlement: undefined };
 }
 
 export function awardOutcome(meta: MetaState, state: GameState): MetaState {

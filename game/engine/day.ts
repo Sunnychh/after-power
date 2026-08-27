@@ -4,6 +4,7 @@ import type { GameState, Inventory, ItemDefinition } from '../types.ts';
 import { createDailySettlement, dailyActionBlockedReason, recordDailyAction } from './daily.ts';
 import { determineOutcome, finishRun } from './outcomes.ts';
 import { expireItems, inventoryCount, removeItem } from './inventory.ts';
+import { assessDebtNight } from './loan.ts';
 import { absoluteDay, addFlag, applyEffect, createLog, selectEvent, weatherForDay } from './state.ts';
 import { dayEndMinutes, PREP_DAY_START, SURVIVAL_DAY_START } from './time.ts';
 
@@ -49,6 +50,7 @@ export function extendColdStorage(inventory: Inventory, currentDay: number): { i
 export function completeTimedAction(state: GameState, durationMinutes: number, actionId = 'timed-action'): EngineResult {
   let next = structuredClone(state);
   next.clockMinutes += durationMinutes;
+  next.feedback.push({ id: `${next.runId}-time-${next.logs.length}-${next.clockMinutes}`, label: '时间', delta: durationMinutes, reason: '行动耗时' });
   next = recordDailyAction(next, actionId);
   const outcome = determineOutcome(next);
   if (outcome) return { state: finishRun(next, outcome), ok: true };
@@ -142,6 +144,8 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   if (next.injuries.includes('感染迹象')) next = applyEffect(next, { stats: { health: -5 } }, '感染加重');
   if (next.stats.satiety < 20) next = applyEffect(next, { stats: { health: next.stats.satiety === 0 ? -15 : -8 } }, '严重饥饿');
   if (next.stats.hydration < 20) next = applyEffect(next, { stats: { health: next.stats.hydration === 0 ? -22 : -12 } }, '严重脱水');
+
+  next = assessDebtNight(next);
 
   next.logs = [...next.logs, createLog(
     next,

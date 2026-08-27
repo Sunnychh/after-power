@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { createInitialState } from '../game/engine/state.ts';
 import { awardOutcome } from '../game/engine/outcomes.ts';
 import { clearGame, DEFAULT_SETTINGS, loadGame, loadMeta, loadSettings, saveGame, saveMeta, saveSettings } from '../game/engine/save.ts';
-import type { AbilityId, DifficultyId, GameState, MetaState, SettingsState } from '../game/types.ts';
+import { formatClock, formatDuration } from '../game/engine/time.ts';
+import type { AbilityId, DifficultyId, GameState, LoanTier, MetaState, SettingsState } from '../game/types.ts';
 import { GameView } from './GameView.tsx';
 import { Modal } from './Modal.tsx';
 import { TitleScreen } from './TitleScreen.tsx';
@@ -29,8 +30,10 @@ export default function GameApp() {
   const [seed, setSeed] = useState('AFTERLIGHT-001');
   const [difficulty, setDifficulty] = useState<DifficultyId>('easy');
   const [autoRations, setAutoRations] = useState(true);
+  const [loanTier, setLoanTier] = useState<LoanTier>('none');
   const [savedAt, setSavedAt] = useState('--:--');
   const [notice, setNotice] = useState<string | null>(null);
+  const [changeCue, setChangeCue] = useState<{ id: number; money?: string; time?: string } | null>(null);
   const [modal, setModal] = useState<'guide' | 'settings' | 'restart' | null>(null);
 
   useEffect(() => {
@@ -51,6 +54,12 @@ export default function GameApp() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    if (!changeCue) return;
+    const timer = window.setTimeout(() => setChangeCue(null), 2400);
+    return () => window.clearTimeout(timer);
+  }, [changeCue]);
+
   const commit = (next: GameState) => {
     let nextMeta = meta;
     if (next.phase === 'ended' && next.outcome && !meta.awardedRuns.includes(next.runId)) {
@@ -69,12 +78,20 @@ export default function GameApp() {
       setNotice(result.message ?? '这个行动现在无法执行。');
       return false;
     }
+    if (state) {
+      const moneyDelta = result.state.money - state.money;
+      const sameDay = result.state.phase === state.phase && result.state.prepDay === state.prepDay && result.state.survivalDay === state.survivalDay;
+      const elapsed = sameDay ? result.state.clockMinutes - state.clockMinutes : 0;
+      const money = moneyDelta ? `${moneyDelta > 0 ? '+' : '-'}¥${Math.abs(moneyDelta)}` : undefined;
+      const time = elapsed > 0 ? `${formatClock(state.clockMinutes)} → ${formatClock(result.state.clockMinutes)} · +${formatDuration(elapsed)}` : !sameDay ? `时间推进至 ${formatClock(result.state.clockMinutes)}` : undefined;
+      if (money || time) setChangeCue({ id: Date.now(), money, time });
+    }
     commit(result.state);
     return true;
   };
 
   const startFresh = () => {
-    const next = createInitialState(seed.trim() || 'AFTERLIGHT-001', meta.unlocked, meta.runs, difficulty, autoRations);
+    const next = createInitialState(seed.trim() || 'AFTERLIGHT-001', meta.unlocked, meta.runs, difficulty, autoRations, loanTier);
     commit(next);
     setScreen('game');
     setModal(null);
@@ -108,10 +125,12 @@ export default function GameApp() {
           seed={seed}
           difficulty={difficulty}
           autoRations={autoRations}
+          loanTier={loanTier}
           meta={meta}
           onSeedChange={setSeed}
           onDifficultyChange={(nextDifficulty) => { setDifficulty(nextDifficulty); setAutoRations(nextDifficulty === 'easy'); }}
           onAutoRationsChange={setAutoRations}
+          onLoanTierChange={setLoanTier}
           onStart={startRequested}
           onContinue={() => { if (saved) { setState(saved); setScreen('game'); } }}
           onGuide={() => setModal('guide')}
@@ -133,11 +152,12 @@ export default function GameApp() {
       ) : null}
 
       {notice && <div className="notice-toast" role="status">{notice}</div>}
+      {changeCue && <div className="change-cue" role="status" aria-live="assertive" key={changeCue.id}>{changeCue.money && <strong className={changeCue.money.startsWith('-') ? 'loss' : 'gain'}>{changeCue.money}<small>现金变化</small></strong>}{changeCue.time && <strong className="time">{changeCue.time}<small>时间流逝</small></strong>}</div>}
 
       {modal === 'guide' && (
         <Modal title="如何在停电以后活下去" onClose={() => setModal(null)} footer={<button className="primary-inline" onClick={() => setModal(null)} type="button">明白了</button>}>
           <div className="guide-grid">
-            <section><b>01</b><h3>先选难度</h3><p>简易难度物资更多、危险更低且第 10 夜即可撤离；标准与艰难保留更完整的生存压力。</p></section>
+            <section><b>01</b><h3>难度与借贷</h3><p>简易难度物资更多、危险更低。借贷能增加开局现金，但封锁后仍会到期、催收并提高危险，请把还款算进采购预算。</p></section>
             <section><b>02</b><h3>时间与休息</h3><p>行动会推进页面中的游戏时钟，到达日终自动结算。白天休息两小时也能恢复体力，不再受固定行动点限制。</p></section>
             <section><b>03</b><h3>物资与家具</h3><p>物资会列明分类和状态点数。冰箱、燃气炉、微波炉与电火锅属于自带家具，可保鲜或制作热食。</p></section>
             <section><b>04</b><h3>愿望与结局</h3><p>每天会直接指定一项可完成的愿望。达成后夜间挑选奖励，未达成没有惩罚。最后一天由你选择普通撤离或已建立的证据路线。</p></section>

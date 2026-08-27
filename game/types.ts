@@ -1,6 +1,7 @@
 export type Phase = 'prep' | 'survival' | 'ended';
 export type Weather = '晴冷' | '闷热' | '酸雨' | '暴雨' | '大雾' | '寒潮';
 export type DifficultyId = 'easy' | 'normal' | 'hard';
+export type LoanTier = 'none' | 'bridge' | 'desperate';
 
 export type StatKey = 'satiety' | 'hydration' | 'health' | 'morale' | 'stamina';
 export type ShelterKey = 'integrity' | 'water' | 'power' | 'fuel' | 'reinforcement' | 'storage' | 'generator';
@@ -31,6 +32,16 @@ export interface ShoppingTrip {
   prepDay: number;
   carriedWeight: number;
   capacity: number;
+}
+
+export interface DebtState {
+  tier: Exclude<LoanTier, 'none'>;
+  borrowed: number;
+  balance: number;
+  dueSurvivalDay: number;
+  minimumPayment: number;
+  missedCollections: number;
+  totalRepaid: number;
 }
 
 export interface ItemDefinition {
@@ -199,6 +210,7 @@ export interface GameState {
   survivalDay: number;
   clockMinutes: number;
   money: number;
+  debt?: DebtState;
   stats: CoreStats;
   shelter: ShelterState;
   furniture: FurnitureState;

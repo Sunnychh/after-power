@@ -57,8 +57,9 @@ export function StatusDock({ state }: { state: GameState }) {
     <aside className="status-dock" aria-label="核心状态">
       <header>
         <span>状态监测</span>
-        <div><strong aria-label={`剩余现金 ${state.money} 元`}>现金 ¥{state.money}</strong><b>{formatClock(state.clockMinutes)}</b></div>
+        <div><strong className={state.feedback.some((item) => item.label === '金钱') ? 'resource-pulse' : ''} aria-label={`剩余现金 ${state.money} 元`}>现金 ¥{state.money}</strong><b className={state.feedback.some((item) => item.label === '时间') ? 'resource-pulse' : ''}>{formatClock(state.clockMinutes)}</b></div>
       </header>
+      {state.debt && <div className="dock-debt" aria-label={`未结债务 ${state.debt.balance} 元`}>债务 ¥{state.debt.balance} · 第 {state.debt.dueSurvivalDay} 天到期</div>}
       <div className="status-grid">
         {STATS.map(({ key, label }) => <StatCell key={key} label={label} value={state.stats[key]} />)}
         <StatCell label="完整度" value={state.shelter.integrity} />

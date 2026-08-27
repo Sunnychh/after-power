@@ -6,6 +6,7 @@ import { DAILY_REWARD_MAP, DAILY_WISH_MAP } from '../game/data/daily.ts';
 import { EVENT_MAP } from '../game/data/events.ts';
 import { formatItemEffects, STORE_DESCRIPTIONS, STORE_NAMES } from '../game/data/items.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
+import { LOAN_MAP } from '../game/data/loans.ts';
 import {
   availableStoreItems,
   endDay,
@@ -14,8 +15,11 @@ import {
   exploreSubstationControl,
   performPrepAction,
   performSurvivalAction,
+  debtPaymentAmount,
   purchaseDisabledReason,
   purchaseItem,
+  repayDebt,
+  repayDebtDisabledReason,
   resolveCurrentEvent,
   substationControlAccess,
   useItem as consumeGameItem,
@@ -25,6 +29,7 @@ import {
 import { cookingPreview, FURNITURE_ACTION_MINUTES, furnitureActionDisabledReason, performFurnitureAction, type FurnitureActionId } from '../game/engine/furniture.ts';
 import { inventoryCount } from '../game/engine/inventory.ts';
 import { isNpcUnlocked } from '../game/engine/npcs.ts';
+import { debtRiskBonus } from '../game/engine/loan.ts';
 import { claimDailyReward, continueAfterMissedWish, dailyWishProgress } from '../game/engine/daily.ts';
 import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
 import { clamp } from '../game/engine/state.ts';
@@ -183,7 +188,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
 
     if (mode === 'explore') {
       const locationChoices: ActionChoice[] = LOCATIONS.map((location) => {
-        const adjusted = clamp(location.risk + difficultyConfig.riskModifier + (state.survivalDay - 1) * 2 - state.intel * 3 - (state.flags.includes('ability:map') ? 8 : 0), 5, 85);
+        const adjusted = clamp(location.risk + difficultyConfig.riskModifier + debtRiskBonus(state) + (state.survivalDay - 1) * 2 - state.intel * 3 - (state.flags.includes('ability:map') ? 8 : 0), 5, 85);
         return {
           id: location.id,
           label: location.name,
@@ -233,6 +238,10 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       return [
         { id: 'trade-water', label: '用巧克力换水', hint: '1小时 · 巧克力 -1 · 瓶装水 +2', disabledReason: timedReason(state, 60) ?? (!isNpcUnlocked(state, 'chen-meng') ? '需要先通过广播联络陈檬' : inventoryCount(state.inventory, 'chocolate') < 1 ? '缺少巧克力' : null), onSelect: () => run(performSurvivalAction(state, 'trade-water')) },
         { id: 'trade-med', label: '用电池换绷带', hint: '1小时 · 电池 -1 · 绷带 +1', disabledReason: timedReason(state, 60) ?? (!isNpcUnlocked(state, 'lin-zhou') ? '需要先通过广播联络林舟' : inventoryCount(state.inventory, 'batteries') < 1 ? '缺少电池组' : null), onSelect: () => run(performSurvivalAction(state, 'trade-med')) },
+        ...(state.debt ? [
+          { id: 'repay-minimum', label: `偿还最低额 ¥${debtPaymentAmount(state, 'minimum')}`, hint: `30分钟 · 当前债务 ¥${state.debt.balance}`, disabledReason: repayDebtDisabledReason(state, 'minimum'), onSelect: () => run(repayDebt(state, 'minimum')) },
+          { id: 'repay-all', label: `一次结清 ¥${debtPaymentAmount(state, 'all')}`, hint: '30分钟 · 结清后立即移除债务危险加成', disabledReason: repayDebtDisabledReason(state, 'all'), onSelect: () => run(repayDebt(state, 'all')) },
+        ] : []),
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
       ];
     }
@@ -243,7 +252,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       { id: 'repair', label: '修缮避难所', hint: '2小时 · 有工具与胶带时完整度 +16', disabledReason: timedReason(state, 120), onSelect: () => run(performSurvivalAction(state, 'repair')) },
       { id: 'craft', label: '家具、烹饪与制作', hint: '使用自带厨房家具，或进行净水和加固', disabledReason: minutesRemaining(state) < 20 ? '今天已没有制作时间' : null, onSelect: () => setMode('craft') },
       { id: 'radio', label: '收听广播', hint: `${formatDuration(radioMinutes)} · 优先耗电 2 或电池 1`, disabledReason: timedReason(state, radioMinutes) ?? (inventoryCount(state.inventory, 'radio') < 1 ? '缺少短波收音机' : null), onSelect: () => run(performSurvivalAction(state, 'radio')) },
-      { id: 'trade', label: '与幸存者交易', hint: '用稀缺物资交换水或药品', disabledReason: timedReason(state, 60), onSelect: () => setMode('trade') },
+      { id: 'trade', label: state.debt ? '交易与偿还债务' : '与幸存者交易', hint: state.debt ? `交换物资，或处理 ¥${state.debt.balance} 未结贷款` : '用稀缺物资交换水或药品', disabledReason: timedReason(state, 30), onSelect: () => setMode('trade') },
       { id: 'explore', label: '外出探索', hint: `4小时 · 选择 6 个地点之一 · ${state.difficulty === 'easy' ? '简易额外战利品 +1' : '危险受状态影响'}`, disabledReason: timedReason(state, 240), onSelect: () => setMode('explore') },
       { id: 'generator', label: '启动备用电源', hint: '30分钟 · 燃料 3 → 电力 +9', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '未完成供电改造' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
       ...(state.survivalDay >= truthDay && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') ? [{ id: 'truth', label: '搭建外联中继', hint: '3小时 · 每轮只有一次发送窗口；失败后仍可普通撤离', disabledReason: truthEndingReady(state) ? timedReason(state, 180) : `需要证据 3（${truthEvidenceCount(state)}）、盟友 2（${trustedNpcCount(state)}）与已解码广播`, danger: '中风险', onSelect: () => run(performSurvivalAction(state, 'truth')) }] : []),
@@ -288,7 +297,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         <section className="narrative-column" aria-label="当日叙事与历史日志">
           {state.feedback.length > 0 && (
             <div className="feedback-strip" aria-live="polite">
-              {state.feedback.slice(-6).map((item) => <span key={item.id} className={item.delta < 0 ? 'negative' : 'positive'}>{item.label} {item.delta > 0 ? '+' : ''}{item.delta}<small>{item.reason}</small></span>)}
+              {state.feedback.slice(-6).map((item) => <span key={item.id} className={item.label === '时间' ? 'time' : item.delta < 0 ? 'negative' : 'positive'}>{item.label} {item.label === '时间' ? `+${formatDuration(item.delta)}` : `${item.delta > 0 ? '+' : ''}${item.delta}`}<small>{item.reason}</small></span>)}
             </div>
           )}
 
@@ -385,6 +394,14 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               </dl>
             )}
           </section>
+          {state.debt && (
+            <section className="debt-panel">
+              <span className="section-kicker">OUTSTANDING DEBT</span>
+              <h2>未结债务 · ¥{state.debt.balance}</h2>
+              <p>{LOAN_MAP[state.debt.tier].name}，封锁第 {state.debt.dueSurvivalDay} 天到期。当前危险判定 +{debtRiskBonus(state)}；已逾期催收 {state.debt.missedCollections} 次。</p>
+              <dl className="daily-progress"><div><dt>最低还款</dt><dd>¥{Math.min(state.debt.balance, state.debt.minimumPayment)}</dd></div><div><dt>累计已还</dt><dd>¥{state.debt.totalRepaid}</dd></div></dl>
+            </section>
+          )}
           <section>
             <span className="section-kicker">PEOPLE IN THE BUILDING</span>
             <h2>幸存者</h2>

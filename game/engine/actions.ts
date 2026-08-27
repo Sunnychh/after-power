@@ -221,6 +221,36 @@ export function performPrepAction(state: GameState, action: PrepActionId): Resul
 
 export type SurvivalActionId = 'rest' | 'repair' | 'barricade' | 'radio' | 'generator' | 'purify' | 'drink-storage' | 'trade-water' | 'trade-med' | 'truth';
 
+export function debtPaymentAmount(state: GameState, mode: 'minimum' | 'all'): number {
+  if (!state.debt) return 0;
+  return mode === 'all' ? state.debt.balance : Math.min(state.debt.balance, state.debt.minimumPayment);
+}
+
+export function repayDebtDisabledReason(state: GameState, mode: 'minimum' | 'all'): string | null {
+  const dailyReason = dailyActionBlockedReason(state);
+  if (dailyReason) return dailyReason;
+  if (state.phase !== 'survival' || !state.debt || state.debt.balance <= 0) return '当前没有未结清债务';
+  const amount = debtPaymentAmount(state, mode);
+  if (state.money < amount) return `现金不足（需要 ¥${amount}）`;
+  return timeDisabledReason(state, 30);
+}
+
+export function repayDebt(state: GameState, mode: 'minimum' | 'all'): Result {
+  const reason = repayDebtDisabledReason(state, mode);
+  if (reason) return { state, ok: false, message: reason };
+  const started = beginTimedAction(state, 30);
+  if (!started.state || !started.state.debt) return { state, ok: false, message: started.reason ?? '当前无法还款。' };
+  const amount = debtPaymentAmount(started.state, mode);
+  const next = applyEffect(started.state, { money: -amount }, '偿还贷款');
+  next.debt!.balance -= amount;
+  next.debt!.totalRepaid += amount;
+  next.feedback.push({ id: `${next.runId}-debt-${next.logs.length}`, label: '债务', delta: -amount, reason: '偿还贷款' });
+  const cleared = next.debt!.balance <= 0;
+  next.logs.push(createLog(next, cleared ? '债务结清' : '偿还贷款', cleared ? `你支付 ¥${amount}，删除了催收终端上的最后一笔余额。此后的危险判定不再受到债务影响。` : `你支付 ¥${amount}，剩余债务 ¥${next.debt!.balance}。催收终端确认收款，但倒计时仍在继续。`, cleared ? 'good' : 'system'));
+  if (cleared) next.debt = undefined;
+  return completeTimedAction(next, 30, 'survival:repay-debt');
+}
+
 export function performSurvivalAction(state: GameState, action: SurvivalActionId): Result {
   if (state.phase !== 'survival') return { state, ok: false, message: '当前不在灾后行动阶段。' };
   const durations: Record<SurvivalActionId, number> = {

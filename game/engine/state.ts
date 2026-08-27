@@ -1,5 +1,6 @@
 import { EVENTS } from '../data/events.ts';
 import { DIFFICULTY_MAP } from '../data/difficulties.ts';
+import { LOAN_MAP } from '../data/loans.ts';
 import { createFurnitureState } from '../data/furniture.ts';
 import { ITEM_MAP } from '../data/items.ts';
 import { NPCS, WEATHER_SEQUENCE } from '../data/world.ts';
@@ -11,6 +12,7 @@ import type {
   GameEvent,
   GameState,
   LogEntry,
+  LoanTier,
   MetaState,
   Requirement,
   StatKey,
@@ -60,6 +62,7 @@ export function createInitialState(
   runOrdinal = 0,
   difficulty: DifficultyId = 'normal',
   autoRations = difficulty === 'easy',
+  loanTier: LoanTier = 'none',
 ): GameState {
   const normalized = normalizeSeed(seed);
   const difficultyConfig = DIFFICULTY_MAP[difficulty];
@@ -76,7 +79,16 @@ export function createInitialState(
     prepDay: 1,
     survivalDay: 0,
     clockMinutes: PREP_DAY_START,
-    money: difficultyConfig.startMoney,
+    money: difficultyConfig.startMoney + LOAN_MAP[loanTier].cashAdvance,
+    ...(loanTier === 'none' ? {} : { debt: {
+      tier: loanTier,
+      borrowed: LOAN_MAP[loanTier].cashAdvance,
+      balance: LOAN_MAP[loanTier].startingDebt,
+      dueSurvivalDay: LOAN_MAP[loanTier].dueSurvivalDay,
+      minimumPayment: LOAN_MAP[loanTier].minimumPayment,
+      missedCollections: 0,
+      totalRepaid: 0,
+    } }),
     stats: {
       satiety: easy ? 96 : hard ? 84 : 90,
       hydration: easy ? 96 : hard ? 84 : 90,
@@ -121,7 +133,7 @@ export function createInitialState(
   state.logs = [createLog(
     state,
     '倒计时开始',
-    `你收到一条来自旧同事的加密消息：七天后，这座城市会以传染病为由全面封锁。消息最后只有一句——别等官方通知。本轮采用${difficultyConfig.name}难度。`,
+    `你收到一条来自旧同事的加密消息：七天后，这座城市会以传染病为由全面封锁。消息最后只有一句——别等官方通知。本轮采用${difficultyConfig.name}难度。${loanTier === 'none' ? '' : `你还签下了${LOAN_MAP[loanTier].name}：到手 ¥${LOAN_MAP[loanTier].cashAdvance}，封锁后仍须偿还 ¥${LOAN_MAP[loanTier].startingDebt}。`}`,
     'system',
   )];
   state.dailyPlan = createAssignedDailyPlan(state);
@@ -269,7 +281,8 @@ export function rollDanger(state: GameState, baseRisk: number): { state: GameSta
   const gearBonus = inventoryCount(next.inventory, 'respirator') > 0 ? 8 : inventoryCount(next.inventory, 'masks') > 0 ? 4 : 0;
   const mapBonus = hasFlag(next, 'ability:map') ? 8 : 0;
   const difficultyModifier = DIFFICULTY_MAP[next.difficulty].riskModifier;
-  const risk = clamp(baseRisk + difficultyModifier + statusPenalty - gearBonus - mapBonus - Math.min(12, next.intel * 3), 5, 85);
+  const debtPenalty = next.debt && next.debt.balance > 0 ? LOAN_MAP[next.debt.tier].riskBonus + Math.min(8, next.debt.missedCollections * 2) : 0;
+  const risk = clamp(baseRisk + difficultyModifier + statusPenalty + debtPenalty - gearBonus - mapBonus - Math.min(12, next.intel * 3), 5, 85);
   const rolled = randomInt(next.rngState, 1, 100);
   next.rngState = rolled.state;
   const severity = rolled.value > risk ? 'safe' : rolled.value > risk / 2 ? 'minor' : 'major';

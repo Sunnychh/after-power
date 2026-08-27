@@ -85,6 +85,7 @@ function removeStaleBatches(state: GameState): GameState {
   if (!Number.isFinite(next.cookingAttempts)) next.cookingAttempts = 0;
   if (!Number.isFinite(next.cookingSkill)) next.cookingSkill = Math.min(5, Math.floor(next.cookingAttempts / 3));
   if (!next.storePurchases || typeof next.storePurchases !== 'object') next.storePurchases = {};
+  if (next.debt && (!Number.isFinite(next.debt.balance) || next.debt.balance <= 0)) next.debt = undefined;
   if (next.shoppingTrip && (!Number.isFinite(next.shoppingTrip.carriedWeight) || !Number.isFinite(next.shoppingTrip.capacity))) next.shoppingTrip = undefined;
   next.inventory = expireItems(next.inventory, absoluteDay(next)).inventory;
   const seenDailySettlements = new Set<string>();
