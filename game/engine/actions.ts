@@ -9,7 +9,7 @@ import { randomInt, seededPick } from './rng.ts';
 import { shoppingCarryCapacity, shoppingCarryRemaining, storePurchaseKey, storeStock } from './store.ts';
 import { completeTimedAction, endDay, type EngineResult } from './day.ts';
 import { dailyActionBlockedReason, recordDailyAction } from './daily.ts';
-import { isNpcUnlocked, nextBroadcastContact } from './npcs.ts';
+import { nextBroadcastContact } from './npcs.ts';
 import { powerUpgradeSpec } from './power.ts';
 import { timeDisabledReason } from './time.ts';
 import {
@@ -230,7 +230,7 @@ export function performPrepAction(state: GameState, action: PrepActionId): Resul
   return completeTimedAction(next, spec.minutes, `prep:${action}`);
 }
 
-export type SurvivalActionId = 'rest' | 'repair' | 'barricade' | 'plate' | 'radio' | 'generator' | 'purify' | 'drink-storage' | 'trade-water' | 'trade-med' | 'truth';
+export type SurvivalActionId = 'rest' | 'repair' | 'barricade' | 'plate' | 'radio' | 'generator' | 'purify' | 'drink-storage' | 'truth';
 
 export function debtPaymentAmount(state: GameState, mode: 'minimum' | 'all'): number {
   if (!state.debt) return 0;
@@ -273,8 +273,6 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     generator: 30,
     purify: 90,
     'drink-storage': 20,
-    'trade-water': 60,
-    'trade-med': 60,
     truth: 180,
   };
   const duration = durations[action];
@@ -332,16 +330,6 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     if (next.shelter.water < 4) return { state, ok: false, message: '储水装置至少需要 4 单位可用水。' };
     title = '从储水装置取水'; body = '你打开标有日期的水阀，只接出一杯当天需要的量，然后重新检查密封。';
     next = applyEffect(next, { shelter: { water: -4 }, stats: { hydration: 26, morale: 1 } }, title);
-  } else if (action === 'trade-water') {
-    if (!isNpcUnlocked(next, 'chen-meng')) return { state, ok: false, message: '尚未通过广播与陈檬建立联络。' };
-    if (inventoryCount(next.inventory, 'chocolate') < 1) return { state, ok: false, message: '缺少可交换的巧克力。' };
-    title = '与幸存者交易'; body = '十二楼的人用两瓶水换走巧克力。他们说那是留给孩子生日的。';
-    next = applyEffect(next, { inventory: { chocolate: -1, 'water-bottle': 2 }, relationships: { 'chen-meng': 3 } }, title);
-  } else if (action === 'trade-med') {
-    if (!isNpcUnlocked(next, 'lin-zhou')) return { state, ok: false, message: '尚未通过广播与林舟建立联络。' };
-    if (inventoryCount(next.inventory, 'batteries') < 1) return { state, ok: false, message: '缺少电池组。' };
-    title = '与林舟交换'; body = '林舟收下一组电池，换给你一卷重新密封的绷带。';
-    next = applyEffect(next, { inventory: { batteries: -1, bandage: 1 }, relationships: { 'lin-zhou': 3 } }, title);
   } else if (action === 'truth') {
     if (!truthEndingReady(next)) return { state, ok: false, message: '证据、人脉或广播条件尚未满足。' };
     title = '向封锁线外发送证据';

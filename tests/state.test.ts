@@ -11,6 +11,7 @@ import { chooseEvacuation } from '../game/engine/outcomes.ts';
 import { ITEM_MAP } from '../game/data/items.ts';
 import { SURVIVAL_DAY_START, dayEndMinutes } from '../game/engine/time.ts';
 import { isNpcUnlocked } from '../game/engine/npcs.ts';
+import { dailyTradeOffers } from '../game/engine/trades.ts';
 import { activateDay } from './helpers.ts';
 
 function survivalState(seed: string) {
@@ -198,7 +199,7 @@ test('有效广播按固定顺序逐个解锁人物，旧广播次数可直接�
 test('未联络人物不会触发具名事件，交易也保持锁定', () => {
   const state = survivalState('npc-locked');
   state.inventory = addItem(state.inventory, ITEM_MAP.chocolate, 1, 8);
-  assert.equal(performSurvivalAction(state, 'trade-water').ok, false);
+  assert.equal(dailyTradeOffers(state).length, 0);
   for (let index = 0; index < 20; index += 1) {
     state.currentEventId = undefined;
     const event = selectEvent(state);

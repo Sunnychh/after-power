@@ -40,6 +40,7 @@ import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/e
 import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, EXPLORATION_SKILL_LABELS, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
 import { nextSiegeWave, siegeDamage, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
+import { dailyTradeOffers, executeTrade, tradeItemsText, tradeOfferDisabledReason, TRADE_MINUTES } from '../game/engine/trades.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
@@ -322,9 +323,15 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       ];
     }
     if (mode === 'trade') {
+      const offers = dailyTradeOffers(state);
       return [
-        { id: 'trade-water', label: '用巧克力换水', hint: '1小时 · 巧克力 -1 · 瓶装水 +2', disabledReason: timedReason(state, 60) ?? (!isNpcUnlocked(state, 'chen-meng') ? '需要先通过广播联络陈檬' : inventoryCount(state.inventory, 'chocolate') < 1 ? '缺少巧克力' : null), onSelect: () => run(performSurvivalAction(state, 'trade-water')) },
-        { id: 'trade-med', label: '用电池换绷带', hint: '1小时 · 电池 -1 · 绷带 +1', disabledReason: timedReason(state, 60) ?? (!isNpcUnlocked(state, 'lin-zhou') ? '需要先通过广播联络林舟' : inventoryCount(state.inventory, 'batteries') < 1 ? '缺少电池组' : null), onSelect: () => run(performSurvivalAction(state, 'trade-med')) },
+        ...(!offers.length ? [{ id: 'trade-locked', label: '交易频道尚未建立', hint: '先收听广播，与至少一名幸存者建立联络', disabledReason: '当前没有可联系的交易对象', onSelect: () => undefined }] : offers.map((offer) => ({
+          id: `trade-${offer.id}`,
+          label: `${NPCS.find((npc) => npc.id === offer.npcId)?.name ?? '幸存者'} · ${offer.label}`,
+          hint: `${formatDuration(TRADE_MINUTES)} · 付出 ${tradeItemsText(offer.give)} → 获得 ${tradeItemsText(offer.receive)}`,
+          disabledReason: tradeOfferDisabledReason(state, offer.id),
+          onSelect: () => run(executeTrade(state, offer.id)),
+        }))),
         ...(state.debt ? [
           { id: 'repay-minimum', label: `偿还最低额 ¥${debtPaymentAmount(state, 'minimum')}`, hint: `30分钟 · 当前债务 ¥${state.debt.balance}`, disabledReason: repayDebtDisabledReason(state, 'minimum'), onSelect: () => run(repayDebt(state, 'minimum')) },
           { id: 'repay-all', label: `一次结清 ¥${debtPaymentAmount(state, 'all')}`, hint: '30分钟 · 结清后立即移除债务危险加成', disabledReason: repayDebtDisabledReason(state, 'all'), onSelect: () => run(repayDebt(state, 'all')) },
@@ -354,7 +361,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       { id: 'repair', label: '修缮避难所', hint: '2小时 · 有工具与胶带时完整度 +16', disabledReason: timedReason(state, 120), onSelect: () => run(performSurvivalAction(state, 'repair')) },
       { id: 'craft', label: '家具、烹饪与制作', hint: '使用自带厨房家具，或进行净水和加固', disabledReason: minutesRemaining(state) < 20 ? '今天已没有制作时间' : null, onSelect: () => setMode('craft') },
       { id: 'radio', label: '收听广播', hint: `${formatDuration(radioMinutes)} · 优先耗电 2 或电池 1`, disabledReason: timedReason(state, radioMinutes) ?? (inventoryCount(state.inventory, 'radio') < 1 ? '缺少短波收音机' : null), onSelect: () => run(performSurvivalAction(state, 'radio')) },
-      { id: 'trade', label: state.debt ? '交易与偿还债务' : '与幸存者交易', hint: state.debt ? `交换物资，或处理 ¥${state.debt.balance} 未结贷款` : '用稀缺物资交换水或药品', disabledReason: timedReason(state, 30), onSelect: () => setMode('trade') },
+      { id: 'trade', label: state.debt ? '今日报价与偿还债务' : '幸存者今日报价', hint: state.debt ? `每日随机刷新物资报价，或处理 ¥${state.debt.balance} 未结贷款` : '根据已联络人物每日随机刷新，网页刷新不会重抽', disabledReason: timedReason(state, 30), onSelect: () => setMode('trade') },
       { id: 'explore', label: '外出探索', hint: `4小时 · 选择 6 个地点之一 · ${state.difficulty === 'easy' ? '简易额外战利品 +1' : '危险受状态影响'}`, disabledReason: timedReason(state, 240), onSelect: () => setMode('explore') },
       { id: 'power', label: '供电与夜间负载', hint: `当前 ${state.shelter.power} 电 · 调整保鲜、照明或节电策略`, onSelect: () => setMode('power') },
       ...(state.survivalDay >= truthDay && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') ? [{ id: 'truth', label: '搭建外联中继', hint: '3小时 · 每轮只有一次发送窗口；失败后仍可普通撤离', disabledReason: truthEndingReady(state) ? timedReason(state, 180) : `需要证据 3（${truthEvidenceCount(state)}）、盟友 2（${trustedNpcCount(state)}）与已解码广播`, danger: `${dangerRisk(state, 46).risk}% 受险`, onSelect: () => run(performSurvivalAction(state, 'truth')) }] : []),
@@ -382,7 +389,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                         ? '家具、烹饪与制作'
                         : mode === 'power'
                           ? '备用供电与夜间负载'
-                          : '选择交换方式';
+                          : '今日幸存者报价';
   const actionSubtitle = state.dailySettlement
     ? state.dailySettlement.wishAchieved
       ? `愿望点余额 ${state.dailyPoints} · 选择一项今日奖励`
@@ -395,7 +402,9 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         ? selectedTarget ? '不同解法会消耗不同的时间与体力，并产生不同收获' : `已发现 ${state.expedition.discoveredScenes.length}/${expeditionLocation?.scenes.length ?? 0} 个区域 · 已为返程预留时间`
       : event
             ? '选择将耗时 30 分钟并写入日志'
-            : `当前 ${formatClock(state.clockMinutes)} · 距日终 ${formatDuration(minutesRemaining(state))}`;
+            : mode === 'trade'
+              ? `封锁第 ${state.survivalDay} 天 · 报价明日刷新；重载网页不会改变今日结果`
+              : `当前 ${formatClock(state.clockMinutes)} · 距日终 ${formatDuration(minutesRemaining(state))}`;
 
   return (
     <main className="game-screen">

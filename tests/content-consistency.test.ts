@@ -5,6 +5,7 @@ import { EVENTS } from '../game/data/events.ts';
 import { ITEMS } from '../game/data/items.ts';
 import { RECIPES } from '../game/data/recipes.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
+import { TRADE_OFFERS } from '../game/data/trades.ts';
 
 function assertUniqueIds(label: string, entries: Array<{ id: string }>) {
   const ids = entries.map((entry) => entry.id);
@@ -18,6 +19,7 @@ test('物品、事件、地点、人物与配方 ID 均唯一', () => {
   assertUniqueIds('地点', LOCATIONS);
   assertUniqueIds('人物', NPCS);
   assertUniqueIds('配方', RECIPES);
+  assertUniqueIds('交易报价', TRADE_OFFERS);
 });
 
 test('全部内容引用都指向实际存在的物品和人物', () => {
@@ -56,6 +58,13 @@ test('全部内容引用都指向实际存在的物品和人物', () => {
       }
       if (option.danger !== undefined) assert.ok(option.danger > 0 && option.danger <= 100, `事件 ${event.id} 的危险值越界`);
     }
+  }
+  for (const offer of TRADE_OFFERS) {
+    assert.ok(npcIds.has(offer.npcId), `交易报价 ${offer.id} 引用了不存在的人物 ${offer.npcId}`);
+    for (const itemId of Object.keys(offer.give)) requireItem(`交易报价 ${offer.id} 的付出`, itemId);
+    for (const itemId of Object.keys(offer.receive)) requireItem(`交易报价 ${offer.id} 的所得`, itemId);
+    assert.ok(Object.values(offer.give).every((quantity) => Number.isInteger(quantity) && quantity > 0), `交易报价 ${offer.id} 的付出数量无效`);
+    assert.ok(Object.values(offer.receive).every((quantity) => Number.isInteger(quantity) && quantity > 0), `交易报价 ${offer.id} 的所得数量无效`);
   }
 });
 
