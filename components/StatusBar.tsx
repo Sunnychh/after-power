@@ -5,6 +5,7 @@ import type { GameState, StatKey } from '../game/types.ts';
 import { dayLabel } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock } from '../game/engine/time.ts';
 import { POWER_POLICY_MAP } from '../game/data/power.ts';
+import { survivalPressure } from '../game/data/pressure.ts';
 
 const STATS: Array<{ key: StatKey; label: string }> = [
   { key: 'health', label: '健康' },
@@ -68,6 +69,7 @@ export function StatusDock({ state }: { state: GameState }) {
   const powerPolicy = POWER_POLICY_MAP[state.powerPolicy];
   const alarmCost = state.phase === 'survival' && state.difficulty === 'hard' && state.survivalDay >= 8 ? 1 : 0;
   const expectedPower = powerPolicy.expectedPower + alarmCost;
+  const moraleDrain = survivalPressure(state.difficulty, Math.max(1, state.survivalDay)).moraleDrain;
   return (
     <aside className="status-dock" aria-label="核心状态">
       <header>
@@ -76,6 +78,7 @@ export function StatusDock({ state }: { state: GameState }) {
       </header>
       {state.debt && <div className="dock-debt" aria-label={`未结债务 ${state.debt.balance} 元`}>债务 ¥{state.debt.balance} · 第 {state.debt.dueSurvivalDay} 天到期</div>}
       {state.isolationNights > 0 && <div className="dock-isolation" aria-label={`已连续孤立 ${state.isolationNights} 夜`}>联络危机 · 已连续孤立 {state.isolationNights}/3 夜</div>}
+      {state.phase === 'survival' && <div className="dock-morale" aria-label={`今晚自然精神消耗 ${moraleDrain} 点`}>今夜心理压力 · 精神 −{moraleDrain}　可通过娱乐、热食、休息或联络恢复</div>}
       <div className="status-grid">
         {STATS.map(({ key, label }) => <StatCell key={key} label={label} value={state.stats[key]} />)}
         <StatCell label="完整度" value={state.shelter.integrity} />

@@ -30,7 +30,7 @@ export function survivalPressure(difficulty: DifficultyId, survivalDay: number):
     foodDrain: baseFood,
     waterDrain: baseWater,
     staminaRecovery: 32,
-    moraleDrain: 0,
+    moraleDrain: 1,
     activityFoodPerTwoHours: 1,
     activityWaterPerTwoHours: 1,
   };

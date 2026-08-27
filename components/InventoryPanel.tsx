@@ -97,6 +97,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             <div><dt>预计续航</dt><dd>{powerNights === null ? '已关闭供电' : `约 ${powerNights} 夜`}</dd></div>
             <div><dt>料理技能</dt><dd>{state.cookingSkill} / 5 级 · 尝试 {state.cookingAttempts} 次</dd></div>
             <div><dt>饮食厌倦</dt><dd>{state.foodBoredom} / 100 · 料理与换口味可降低</dd></div>
+            <div><dt>娱乐储备</dt><dd>{['paperback', 'playing-cards', 'music-player'].filter((id) => inventoryCount(state.inventory, id) > 0).length} / 3 种</dd></div>
             <div><dt>最近进食</dt><dd title={state.recentMeals.map((id) => ITEM_MAP[id]?.name ?? id).join(' → ') || '尚无记录'}>{state.recentMeals.length ? state.recentMeals.slice(-3).map((id) => ITEM_MAP[id]?.name ?? id).join(' → ') : '尚无记录'}</dd></div>
           </dl>
           <section className="furniture-section" aria-labelledby="furniture-title">

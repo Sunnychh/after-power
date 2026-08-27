@@ -61,3 +61,19 @@ test('夜间自动配给与手动食用共用近期饮食记录', () => {
   assert.equal(state.foodBoredom, 15);
   assert.ok(state.logs.some((log) => log.body.includes('连续第 2 次吃豆类罐头')));
 });
+
+test('艰难模式交替两种口粮仍会识别最近四餐的重复', () => {
+  let hard = eatingState();
+  hard.difficulty = 'hard';
+  hard = useItem(hard, 'canned-beans').state;
+  hard = useItem(hard, 'fresh-apples').state;
+  hard = useItem(hard, 'canned-beans').state;
+  assert.equal(hard.foodBoredom, 8);
+  assert.ok(hard.logs.at(-1)?.body.includes('最近四餐'));
+
+  let normal = eatingState();
+  normal = useItem(normal, 'canned-beans').state;
+  normal = useItem(normal, 'fresh-apples').state;
+  normal = useItem(normal, 'canned-beans').state;
+  assert.equal(normal.foodBoredom, 0, '标准难度允许用两种口粮交替缓解单调');
+});

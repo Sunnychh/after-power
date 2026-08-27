@@ -31,6 +31,12 @@ export function applyFoodVariety(state: GameState, item: ItemDefinition): FoodVa
     message = cooked
       ? `连续第 ${consecutive + 1} 次吃${item.name}，即使是热食也开始重复。`
       : `连续第 ${consecutive + 1} 次吃${item.name}，熟悉的味道已经令人厌倦。`;
+  } else if (state.difficulty === 'hard' && recentUses > 0) {
+    boredomChange = cooked ? 3 : 8;
+    moralePenalty = cooked ? 1 : 2 + Math.floor(beforeBoredom / 40);
+    message = cooked
+      ? `${item.name}虽然隔餐再吃，艰难环境里的有限菜单仍让它显得重复。`
+      : `${item.name}在最近四餐里已经出现过；交替口粮仍无法掩盖长期单调。`;
   } else if (recentUses >= 2) {
     boredomChange = cooked ? -8 : 4;
     moralePenalty = cooked ? 0 : 1;
@@ -64,6 +70,7 @@ export function foodVarietyPreview(state: GameState, item: ItemDefinition): stri
   const history = state.recentMeals ?? [];
   let consecutive = 0;
   for (let index = history.length - 1; index >= 0 && history[index] === item.id; index -= 1) consecutive += 1;
+  if (state.difficulty === 'hard' && consecutive === 0 && history.slice(-4).includes(item.id)) return '艰难模式：最近四餐已吃过，再次食用仍会增加厌倦';
   if (consecutive === 0) return item.tags.includes('cooked') && !item.tags.includes('failed') ? '不同料理可大幅降低厌倦' : '更换口味可降低厌倦';
   return `已连续吃 ${consecutive} 次；再次食用会增加厌倦并削减精神收益`;
 }

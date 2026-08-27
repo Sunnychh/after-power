@@ -7,6 +7,7 @@ import { RECIPES } from '../game/data/recipes.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { TRADE_OFFERS } from '../game/data/trades.ts';
 import { CONTACTS } from '../game/data/contacts.ts';
+import { ENTERTAINMENT } from '../game/data/entertainment.ts';
 
 function assertUniqueIds(label: string, entries: Array<{ id: string }>) {
   const ids = entries.map((entry) => entry.id);
@@ -22,6 +23,7 @@ test('物品、事件、地点、人物与配方 ID 均唯一', () => {
   assertUniqueIds('配方', RECIPES);
   assertUniqueIds('交易报价', TRADE_OFFERS);
   assertUniqueIds('主动联络人物', CONTACTS.map((contact) => ({ id: contact.npcId })));
+  assertUniqueIds('娱乐活动', ENTERTAINMENT);
 });
 
 test('全部内容引用都指向实际存在的物品和人物', () => {
@@ -72,6 +74,10 @@ test('全部内容引用都指向实际存在的物品和人物', () => {
         if (delta < 0) assert.ok(option.requirements?.some((requirement) => requirement.item === itemId && (requirement.quantity ?? 1) >= -delta));
       }
     }
+  }
+  for (const activity of ENTERTAINMENT) {
+    if (activity.requiredItem) requireItem(`娱乐活动 ${activity.id}`, activity.requiredItem);
+    assert.ok(activity.minutes > 0 && activity.morale > 0, `娱乐活动 ${activity.id} 的时间或精神收益无效`);
   }
   for (const offer of TRADE_OFFERS) {
     assert.ok(npcIds.has(offer.npcId), `交易报价 ${offer.id} 引用了不存在的人物 ${offer.npcId}`);

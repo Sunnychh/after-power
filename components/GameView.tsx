@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { DIFFICULTY_MAP } from '../game/data/difficulties.ts';
 import { DAILY_REWARD_MAP, DAILY_WISH_MAP } from '../game/data/daily.ts';
+import { ENTERTAINMENT, type EntertainmentId } from '../game/data/entertainment.ts';
 import { EVENT_MAP } from '../game/data/events.ts';
 import { formatItemEffects, STORE_DESCRIPTIONS, STORE_NAMES } from '../game/data/items.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
@@ -42,19 +43,21 @@ import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
 import { nextSiegeWave, siegeDamage, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
 import { dailyTradeOffers, executeTrade, tradeItemsText, tradeOfferDisabledReason, TRADE_MINUTES } from '../game/engine/trades.ts';
 import { activeContactDisabledReason, contactCostText, contactOptions, contactsRemainingToday, npcAllianceFlag, performActiveContact } from '../game/engine/contacts.ts';
+import { entertainmentDisabledReason, performEntertainment } from '../game/engine/entertainment.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
 import { Modal } from './Modal.tsx';
 import { StatusBar, StatusDock } from './StatusBar.tsx';
 
-type Mode = 'main' | 'shops' | 'explore' | 'craft' | 'contact' | 'trade' | 'power';
+type Mode = 'main' | 'shops' | 'explore' | 'craft' | 'entertainment' | 'contact' | 'trade' | 'power';
 type EngineResult = { state: GameState; ok: boolean; message?: string };
 
 const TUTORIAL = [
   { title: '状态就在右下', body: '健康、水分、饱腹、精神、体力和避难所状态固定在右下。低于 40 会影响危险判定。' },
   { title: '钟点决定一天', body: '每个行动会推进游戏内时钟，到达日终自动进入夜间结算。封锁后每经过两小时还会产生少量食水消耗；休息能恢复体力，但不再是免费循环。' },
   { title: '每件物资都标保存期', body: '易腐物会按入库批次显示“剩余 N 天”或“今天到期”，其他物资会标为长期保存；冰箱会逐批延长仍有效的保质期。' },
+  { title: '精神每天都会下降', body: '封锁后的夜间压力每天都会降低精神，艰难后期下降更多。可在“家具、烹饪与制作 → 娱乐与放松”中写日记、阅读、摆纸牌或听音乐；同一活动每天只能获得一次收益。' },
   { title: '每天一个明确愿望', body: '系统每天直接给出一件当天能完成的事。达成后夜间领取奖励；没有完成也不会扣除任何状态或点数。' },
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
   { title: '越早采购越稳妥', body: '第一天商店货最全，此后会逐日限购和缺货。每次出门还有随身负重上限；第七天闯商店可能受伤，也可能在无人收银时带回一包物资。' },
@@ -314,11 +317,24 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         furnitureChoice('gas-stove', '燃气炉 · 随机料理'),
         furnitureChoice('microwave', '微波炉 · 随机料理'),
         furnitureChoice('electric-hotpot', '电火锅 · 随机料理'),
+        { id: 'entertainment', label: '娱乐与放松', hint: `今夜精神将自然 -${pressure.moraleDrain} · 安排日记、阅读、纸牌或音乐`, onSelect: () => setMode('entertainment') },
         { id: 'drink-storage', label: '从储水装置取水', hint: '20分钟 · 储水 -4 · 水分 +26', disabledReason: timedReason(state, 20) ?? (state.shelter.water < 4 ? '储水不足 4' : null), onSelect: () => run(performSurvivalAction(state, 'drink-storage')) },
         { id: 'barricade', label: '木板加固', hint: '2小时 · 木板 -1 · 完整度 +20', disabledReason: timedReason(state, 120) ?? (inventoryCount(state.inventory, 'wood-board') < 1 ? '缺少木板 ×1' : null), onSelect: () => run(performSurvivalAction(state, 'barricade')) },
         { id: 'plate', label: '钢板封固', hint: '2小时30分 · 薄钢板 -1 · 完整度 +32 · 加固 +2', disabledReason: timedReason(state, 150) ?? (inventoryCount(state.inventory, 'metal-sheet') < 1 ? '缺少薄钢板 ×1' : inventoryCount(state.inventory, 'toolkit') < 1 ? '需要家用工具箱' : null), onSelect: () => run(performSurvivalAction(state, 'plate')) },
         { id: 'purify', label: '处理雨水', hint: '1小时30分 · 净水片、滤布、储水 6 → 瓶装水 2', disabledReason: timedReason(state, 90) ?? (inventoryCount(state.inventory, 'purifier-tablet') < 1 ? '缺少净水片' : inventoryCount(state.inventory, 'filter-cloth') < 1 ? '缺少活性炭滤布' : state.shelter.water < 6 ? '储水不足 6' : null), onSelect: () => run(performSurvivalAction(state, 'purify')) },
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
+      ];
+    }
+    if (mode === 'entertainment') {
+      return [
+        ...ENTERTAINMENT.map((activity) => ({
+          id: `entertainment-${activity.id}`,
+          label: activity.name,
+          hint: `${formatDuration(activity.minutes)} · 精神 +${activity.morale}${activity.id === 'music' ? ' · 电力 -1（缺电时电池 -1）' : activity.requiredItem ? ` · 需要${activity.requiredItem === 'paperback' ? '旧版悬疑小说' : '缺角扑克牌'}` : ' · 不消耗物资'}`,
+          disabledReason: entertainmentDisabledReason(state, activity.id as EntertainmentId),
+          onSelect: () => run(performEntertainment(state, activity.id as EntertainmentId)),
+        })),
+        { id: 'back', label: '返回家具与制作', hint: '不耗时', onSelect: () => setMode('craft') },
       ];
     }
     if (mode === 'trade') {
@@ -421,6 +437,8 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                       ? '选择探索地点'
                       : mode === 'craft'
                         ? '家具、烹饪与制作'
+                        : mode === 'entertainment'
+                          ? '娱乐与精神恢复'
                         : mode === 'power'
                           ? '备用供电与夜间负载'
                           : mode === 'contact'
@@ -594,6 +612,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                 <div><dt>今夜饱腹</dt><dd>−{pressure.foodDrain}</dd></div>
                 <div><dt>今夜水分</dt><dd>−{pressure.waterDrain}</dd></div>
                 <div><dt>睡眠体力</dt><dd>+{pressure.staminaRecovery}</dd></div>
+                <div><dt>今夜精神</dt><dd>−{pressure.moraleDrain}</dd></div>
                 <div><dt>每行动 2 小时</dt><dd>饱腹 −{pressure.activityFoodPerTwoHours} / 水分 −{pressure.activityWaterPerTwoHours}</dd></div>
               </dl>
             </section>
