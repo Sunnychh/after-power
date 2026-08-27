@@ -305,6 +305,63 @@ export function exploreLocation(state: GameState, locationId: string): Result {
   return completeTimedAction(next, 240, 'survival:explore');
 }
 
+export function substationControlAccess(state: GameState): { available: boolean; reason?: string; method?: 'key' | 'route'; baseRisk?: number } {
+  if (state.phase !== 'survival') return { available: false, reason: '封锁发生后才能前往控制层。' };
+  if (hasFlag(state, 'substation-control-searched')) return { available: false, reason: '控制层已经搜查完毕。' };
+  if (inventoryCount(state.inventory, 'station-key') > 0) return { available: true, method: 'key', baseRisk: 24 };
+  if (hasFlag(state, 'substation-route')) return { available: true, method: 'route', baseRisk: 52 };
+  return { available: false, reason: '需要变电站铜钥匙，或备用入口路线。' };
+}
+
+export function exploreSubstationControl(state: GameState): Result {
+  const access = substationControlAccess(state);
+  if (!access.available || !access.method || access.baseRisk === undefined) {
+    return { state, ok: false, message: access.reason ?? '无法进入变电站控制层。' };
+  }
+  const started = beginTimedAction(state, 180);
+  if (!started.state) return { state, ok: false, message: started.reason ?? '今天没有足够时间进入控制层。' };
+
+  let next = started.state;
+  const weatherPenalty = next.weather === '酸雨' ? 8 : next.weather === '暴雨' ? 6 : next.weather === '大雾' ? 4 : 0;
+  const danger = rollDanger(next, access.baseRisk + weatherPenalty);
+  next = danger.state;
+
+  const found: string[] = [];
+  const sample = ITEM_MAP['sample-tube'];
+  next.inventory = addItem(next.inventory, sample, 1, absoluteDay(next));
+  found.push(sample.name);
+  if (canAddWeight(next.inventory, ITEM_MAP.batteries, 2, next.carryCapacity, ITEM_MAP)) {
+    next.inventory = addItem(next.inventory, ITEM_MAP.batteries, 2, absoluteDay(next));
+    found.push('电池组 ×2');
+  }
+  next = applyEffect(next, { shelter: { power: 10 }, intel: 1, stats: { stamina: -12 } }, '变电站控制层');
+  const controlFeedback = [...next.feedback];
+  addFlag(next, 'substation-control-searched');
+  addFlag(next, 'evidence-substation');
+
+  if (danger.severity === 'minor') next = applyEffect(next, { stats: { health: -4, morale: -2 } }, '控制层漏电');
+  if (danger.severity === 'major') next = applyEffect(next, { stats: { health: -12, morale: -5 }, injury: '外伤' }, '控制层险情');
+  const dangerFeedback = [...next.feedback];
+
+  const accessText = access.method === 'key'
+    ? '铜钥匙打开了控制楼内侧的机械锁，你避开了破损的电缆沟。'
+    : '你照着手绘路线翻进备用入口，必须穿过一段积水的电缆沟。';
+  const outcomeText = danger.severity === 'safe' ? '没有触发残余电弧' : danger.severity === 'minor' ? '手背被电弧灼伤' : '平台护栏断裂，你受伤后才爬回通道';
+  next.feedback = [
+    ...controlFeedback,
+    ...dangerFeedback,
+    { id: `${next.runId}-control-sample-${next.logs.length}`, label: sample.name, delta: 1, reason: '控制层冷藏柜' },
+    ...(found.includes('电池组 ×2') ? [{ id: `${next.runId}-control-battery-${next.logs.length}`, label: '电池组', delta: 2, reason: '控制层储物柜' }] : []),
+  ];
+  next.logs = [...next.logs, createLog(
+    next,
+    '支线 · 变电站控制层',
+    `${accessText} 判定 ${danger.roll}/${danger.risk}，${outcomeText}。冷藏柜的独立电源仍在工作，你带回了${found.join('、')}，并为避难所补充了 10 点备用电力。样本批次 C-17 可作为真相路线证据。`,
+    danger.severity === 'major' ? 'bad' : 'story',
+  )];
+  return completeTimedAction(next, 180, 'survival:explore');
+}
+
 export function useItem(state: GameState, itemId: string): Result {
   const dailyReason = dailyActionBlockedReason(state);
   if (dailyReason) return { state, ok: false, message: dailyReason };

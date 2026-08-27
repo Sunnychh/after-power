@@ -40,7 +40,7 @@ export const ITEMS: ItemDefinition[] = [
   { id: 'family-photo', name: '走廊里的合照', category: '特殊', price: 0, weight: 0.06, description: '照片背面写着一串门禁编号。', story: true, tags: ['story', 'memory'] },
   { id: 'lab-badge', name: '疾控中心工牌', category: '特殊', price: 0, weight: 0.04, description: '持有人叫邱岚，权限没有完全失效。', story: true, tags: ['story', 'truth'] },
   { id: 'sample-tube', name: '低温样本管', category: '特殊', price: 0, weight: 0.18, description: '标签被刮去，只剩批次“C-17”。', perishableDays: 6, expiredLabel: '低温样本已经失效', story: true, tags: ['story', 'truth', 'cold'] },
-  { id: 'station-key', name: '变电站铜钥匙', category: '特殊', price: 0, weight: 0.08, description: '通往北湖变电站控制层。', story: true, tags: ['story', 'power'] },
+  { id: 'station-key', name: '变电站铜钥匙', category: '特殊', price: 0, weight: 0.08, description: '可低风险开启北湖变电站控制层；不会在使用后消耗。', story: true, tags: ['story', 'power'] },
   { id: 'bus-manifest', name: '撤离车队名单', category: '特殊', price: 0, weight: 0.03, description: '名单上有几处被红笔改写。', story: true, tags: ['story', 'evacuation'] },
   { id: 'sealed-letter', name: '未寄出的信', category: '特殊', price: 0, weight: 0.02, description: '收件人是封锁线外的一名记者。', story: true, tags: ['story', 'truth'] },
 ];

@@ -11,10 +11,12 @@ import {
   endDay,
   eventOptionDisabledReason,
   exploreLocation,
+  exploreSubstationControl,
   performPrepAction,
   performSurvivalAction,
   purchaseItem,
   resolveCurrentEvent,
+  substationControlAccess,
   useItem as consumeGameItem,
   visitStore,
   type PrepActionId,
@@ -186,7 +188,20 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           onSelect: () => run(exploreLocation(state, location.id)),
         };
       });
-      return [...locationChoices, { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') }];
+      const controlAccess = substationControlAccess(state);
+      const controlChoice: ActionChoice = {
+        id: 'north-substation-control',
+        label: '支线 · 变电站控制层',
+        hint: controlAccess.method === 'key'
+          ? '3小时 · 铜钥匙进入（钥匙保留）· 样本证据与备用电力'
+          : controlAccess.method === 'route'
+            ? '3小时 · 从备用入口潜入 · 样本证据与备用电力'
+            : '3小时 · 隐藏区域 · 样本证据与备用电力',
+        danger: controlAccess.method === 'key' ? '低风险' : controlAccess.method === 'route' ? '高风险' : undefined,
+        disabledReason: controlAccess.available ? timedReason(state, 180) : controlAccess.reason,
+        onSelect: () => run(exploreSubstationControl(state)),
+      };
+      return [...locationChoices, controlChoice, { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') }];
     }
     if (mode === 'craft') {
       const furnitureChoice = (id: FurnitureActionId, label: string, hint: string): ActionChoice => ({

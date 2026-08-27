@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ITEMS } from '../game/data/items.ts';
 import { EVENTS } from '../game/data/events.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
-import { endDay, exploreLocation, performPrepAction } from '../game/engine/actions.ts';
+import { endDay, exploreLocation, exploreSubstationControl, performPrepAction, substationControlAccess } from '../game/engine/actions.ts';
 import { claimDailyReward, continueAfterMissedWish } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { applyEffect, createInitialState, selectEvent } from '../game/engine/state.ts';
@@ -62,6 +62,29 @@ test('同种子、同操作得到一致探索结果', () => {
   const b = exploreLocation(second, 'riverside-market');
   assert.equal(a.ok, true);
   assert.deepEqual(a.state, b.state);
+});
+
+test('变电站控制层需要钥匙或路线，钥匙提供低风险且不会消耗', () => {
+  const locked = survivalState('control-locked');
+  assert.equal(substationControlAccess(locked).available, false);
+  assert.equal(exploreSubstationControl(locked).ok, false);
+
+  const keyed = survivalState('control-keyed');
+  keyed.inventory = addItem(keyed.inventory, ITEM_MAP['station-key'], 1, 8);
+  assert.deepEqual(substationControlAccess(keyed), { available: true, method: 'key', baseRisk: 24 });
+  const result = exploreSubstationControl(keyed);
+  assert.equal(result.ok, true);
+  assert.equal(inventoryCount(result.state.inventory, 'station-key'), 1);
+  assert.equal(inventoryCount(result.state.inventory, 'sample-tube'), 1);
+  assert.ok(result.state.flags.includes('substation-control-searched'));
+  assert.equal(substationControlAccess(result.state).available, false);
+});
+
+test('变电站备用路线可替代钥匙，但基础危险更高', () => {
+  const routed = survivalState('control-route');
+  routed.flags.push('substation-route');
+  assert.deepEqual(substationControlAccess(routed), { available: true, method: 'route', baseRisk: 52 });
+  assert.equal(exploreSubstationControl(routed).ok, true);
 });
 
 test('真相路线选择事件按难度在关键日稳定出现', () => {

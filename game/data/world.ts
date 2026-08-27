@@ -77,7 +77,6 @@ export const LOCATIONS: LocationDefinition[] = [
     risk: 55,
     description: '围栏外没有人，控制楼里却还亮着一盏应急灯。',
     loot: ['copper-wire', 'batteries', 'fuel-can', 'toolkit', 'raincoat'],
-    uniqueItem: 'sample-tube',
   },
   {
     id: 'east-terminal',
