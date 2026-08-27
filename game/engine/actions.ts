@@ -281,6 +281,7 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
   let next = started.state;
   let title = '';
   let body = '';
+  const panRepairBonus = next.flags.includes('npc-allied:pan-yue') ? 6 : 0;
 
   if (action === 'rest') {
     title = '休息两小时'; body = '你把背包放回门边，喝了一小口水，闭眼休息到呼吸重新平稳。';
@@ -288,21 +289,21 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
   } else if (action === 'repair') {
     title = '修缮避难所';
     if (inventoryCount(next.inventory, 'duct-tape') > 0 && inventoryCount(next.inventory, 'toolkit') > 0) {
-      next = applyEffect(next, { inventory: { 'duct-tape': -1 }, shelter: { integrity: 16 }, stats: { stamina: -7 } }, title);
+      next = applyEffect(next, { inventory: { 'duct-tape': -1 }, shelter: { integrity: 16 + panRepairBonus }, stats: { stamina: -7 } }, title);
       body = '你用工具重新固定门框，并用胶带封住最宽的缝。';
     } else {
-      next = applyEffect(next, { shelter: { integrity: 6 }, stats: { stamina: -15 } }, title);
+      next = applyEffect(next, { shelter: { integrity: 6 + panRepairBonus }, stats: { stamina: -15 } }, title);
       body = '没有合适材料，你把废木条做成几块临时支撑。';
     }
   } else if (action === 'barricade') {
     if (inventoryCount(next.inventory, 'wood-board') < 1) return { state, ok: false, message: '缺少木板 ×1' };
     title = '加固门窗'; body = '木板横在门框上，钉子穿过两层旧木料。';
-    next = applyEffect(next, { inventory: { 'wood-board': -1 }, shelter: { integrity: 20, reinforcement: 1 }, stats: { stamina: -9 } }, title);
+    next = applyEffect(next, { inventory: { 'wood-board': -1 }, shelter: { integrity: 20 + panRepairBonus, reinforcement: 1 }, stats: { stamina: -9 } }, title);
   } else if (action === 'plate') {
     if (inventoryCount(next.inventory, 'metal-sheet') < 1) return { state, ok: false, message: '缺少薄钢板 ×1' };
     if (inventoryCount(next.inventory, 'toolkit') < 1) return { state, ok: false, message: '安装钢板需要家用工具箱。' };
     title = '钢板封固'; body = '你在门框上钻出六个固定点，把薄钢板压住锁舌和合页。它很重，但下一次撞击会先落在钢面上。';
-    next = applyEffect(next, { inventory: { 'metal-sheet': -1 }, shelter: { integrity: 32, reinforcement: 2 }, stats: { stamina: -11 } }, title);
+    next = applyEffect(next, { inventory: { 'metal-sheet': -1 }, shelter: { integrity: 32 + panRepairBonus, reinforcement: 2 }, stats: { stamina: -11 } }, title);
   } else if (action === 'radio') {
     if (inventoryCount(next.inventory, 'radio') < 1) return { state, ok: false, message: '缺少短波收音机。' };
     const newContact = nextBroadcastContact(next);
@@ -353,6 +354,7 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     }
   }
 
+  if (panRepairBonus && ['repair', 'barricade', 'plate'].includes(action)) body += ' 潘岳按承重图复核了受力点，额外恢复完整度 +6。';
   next.logs = [...next.logs, createLog(next, title, body, action === 'truth' && !hasFlag(next, 'truth-transmitted') ? 'bad' : 'good')];
   return completeTimedAction(next, duration, `survival:${action}`);
 }

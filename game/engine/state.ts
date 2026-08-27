@@ -194,6 +194,8 @@ function eventEligible(state: GameState, event: GameEvent): boolean {
   if (event.npc && !isNpcUnlocked(state, event.npc)) return false;
   const day = phase === 'prep' ? state.prepDay : state.survivalDay;
   if (event.id === 'final-broadcast-window' && day !== DIFFICULTY_MAP[state.difficulty].truthDecisionDay) return false;
+  if (event.difficulties && !event.difficulties.includes(state.difficulty)) return false;
+  if (event.inventoryAny && !event.inventoryAny.some((itemId) => inventoryCount(state.inventory, itemId) > 0)) return false;
   if (event.minDay !== undefined && day < event.minDay) return false;
   if (event.maxDay !== undefined && day > event.maxDay) return false;
   if (event.weather && !event.weather.includes(state.weather)) return false;
@@ -211,7 +213,10 @@ export function selectEvent(state: GameState): GameEvent | undefined {
   if (routeDecision) return routeDecision;
   const fixed = candidates.filter((event) => event.minDay === day && event.maxDay === day);
   const chain = candidates.filter((event) => event.chain && event.chain.step > 1);
-  const pool = (fixed.length ? fixed : chain.length ? chain : candidates).sort((a, b) => a.id.localeCompare(b.id));
+  const hardStockPressure = state.phase === 'survival' && state.difficulty === 'hard' && (day % 2 === 1 || day === 14)
+    ? candidates.filter((event) => event.hardStockPressure)
+    : [];
+  const pool = (fixed.length ? fixed : hardStockPressure.length ? hardStockPressure : chain.length ? chain : candidates).sort((a, b) => a.id.localeCompare(b.id));
   const pick = seededPick(state.rngState, pool);
   state.rngState = pick.state;
   return pick.value;
@@ -308,6 +313,7 @@ export function dangerRisk(state: GameState, baseRisk: number): DangerCalculatio
   const gearBonus = inventoryCount(state.inventory, 'respirator') > 0 ? 8 : inventoryCount(state.inventory, 'masks') > 0 ? 4 : 0;
   if (gearBonus) factors.push({ label: inventoryCount(state.inventory, 'respirator') > 0 ? '防毒面具' : '医用口罩', delta: -gearBonus });
   if (hasFlag(state, 'ability:map')) factors.push({ label: '旧城地图', delta: -8 });
+  if (hasFlag(state, 'npc-allied:qiu-lan')) factors.push({ label: '邱岚 · 风险研判', delta: -5 });
   const intelBonus = Math.min(12, state.intel * 3);
   if (intelBonus) factors.push({ label: '灾难情报', delta: -intelBonus });
   return { risk: clamp(factors.reduce((sum, factor) => sum + factor.delta, 0), 5, 85), factors };

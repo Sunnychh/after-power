@@ -76,6 +76,9 @@ export interface NpcDefinition {
   role: string;
   stance: string;
   description: string;
+  talentName: string;
+  talentDescription: string;
+  allianceThreshold: number;
 }
 
 export interface LocationDefinition {
@@ -126,6 +129,9 @@ export interface GameEvent {
   minDay?: number;
   maxDay?: number;
   weather?: Weather[];
+  difficulties?: DifficultyId[];
+  inventoryAny?: string[];
+  hardStockPressure?: boolean;
   requiresFlags?: string[];
   excludesFlags?: string[];
   chain?: { id: string; step: number };

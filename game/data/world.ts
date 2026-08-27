@@ -7,6 +7,9 @@ export const NPCS: NpcDefinition[] = [
     role: '急诊护士',
     stance: '先救眼前的人，不拿药品换投机筹码。',
     description: '住在楼下，夜班刚停。她知道哪些伤口不能拖。',
+    talentName: '创伤分级',
+    talentDescription: '结盟后，外伤与感染迹象的每夜恶化各减少 2 点健康损失。',
+    allianceThreshold: 24,
   },
   {
     id: 'pan-yue',
@@ -14,6 +17,9 @@ export const NPCS: NpcDefinition[] = [
     role: '五金店老板',
     stance: '物资要明码交换，承诺不能给发电机加油。',
     description: '嘴硬、记账清楚，对这片老楼的管线很熟。',
+    talentName: '结构复核',
+    talentDescription: '结盟后，修缮、木板加固和钢板封固额外恢复 6 点完整度。',
+    allianceThreshold: 24,
   },
   {
     id: 'qiu-lan',
@@ -21,6 +27,9 @@ export const NPCS: NpcDefinition[] = [
     role: '疾控中心检验员',
     stance: '证据必须送出去，哪怕撤离因此延后。',
     description: '说话谨慎，似乎比广播更早知道封锁原因。',
+    talentName: '风险研判',
+    talentDescription: '结盟后，所有危险判定的风险线降低 5 点。',
+    allianceThreshold: 24,
   },
   {
     id: 'chen-meng',
@@ -28,6 +37,9 @@ export const NPCS: NpcDefinition[] = [
     role: '社区网格员',
     stance: '先保住街坊，再谈谁该为封锁负责。',
     description: '熟悉每户住着谁，也知道哪些门已经没人回应。',
+    talentName: '楼栋协防',
+    talentDescription: '结盟后，每次困难围攻额外吸收 3 点冲击。',
+    allianceThreshold: 24,
   },
 ];
 

@@ -17,7 +17,8 @@ export function siegeMitigation(state: GameState): number {
   return state.shelter.reinforcement * 2
     + (state.flags.includes('horde-prepared') ? 3 : 0)
     + (state.flags.includes('horde-braced') ? 1 : 0)
-    + (state.flags.includes('horde-survived') ? 2 : 0);
+    + (state.flags.includes('horde-survived') ? 2 : 0)
+    + (state.flags.includes('npc-allied:chen-meng') ? 3 : 0);
 }
 
 export function siegeDamage(state: GameState, wave: SiegeWaveDefinition): number {

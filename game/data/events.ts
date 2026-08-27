@@ -1,4 +1,5 @@
 import type { GameEvent } from '../types.ts';
+import { HARD_LATE_EVENTS } from './hard-late-events.ts';
 
 export const EVENTS: GameEvent[] = [
   {
@@ -392,6 +393,7 @@ export const EVENTS: GameEvent[] = [
       { label: '强迫自己睡觉', hint: '体力 +10，精神 -2', result: '睡眠断成很多小段，但身体总算得到休息。', effects: { stats: { stamina: 10, morale: -2 } } },
     ],
   },
+  ...HARD_LATE_EVENTS,
 ];
 
 export const EVENT_MAP: Record<string, GameEvent> = Object.fromEntries(

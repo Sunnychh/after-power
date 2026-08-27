@@ -38,13 +38,14 @@ import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, EX
 import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
 import { nextSiegeWave, siegeDamage, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
 import { dailyTradeOffers, executeTrade, tradeItemsText, tradeOfferDisabledReason, TRADE_MINUTES } from '../game/engine/trades.ts';
+import { activeContactDisabledReason, contactCostText, contactOptions, npcAllianceFlag, performActiveContact } from '../game/engine/contacts.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
 import { Modal } from './Modal.tsx';
 import { StatusBar, StatusDock } from './StatusBar.tsx';
 
-type Mode = 'main' | 'shops' | 'explore' | 'craft' | 'trade' | 'power';
+type Mode = 'main' | 'shops' | 'explore' | 'craft' | 'contact' | 'trade' | 'power';
 type EngineResult = { state: GameState; ok: boolean; message?: string };
 
 const TUTORIAL = [
@@ -55,6 +56,7 @@ const TUTORIAL = [
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
   { title: '越早采购越稳妥', body: '第一天商店货最全，此后会逐日限购和缺货。每次出门还有随身负重上限；第七天闯商店可能受伤，也可能在无人收银时带回一包物资。' },
   { title: '所有地点都能逐区深入', body: '封锁后六处地点都有各自的内部区域、现场目标和多种处理方法。工具、技能、情报与已发现路线会解锁不同解法；随时可以返回入口撤离，系统会预留返程时间。' },
+  { title: '人物可以主动培养', body: '广播逐个建立人物联络后，可主动选择咨询或提供物资。信任达到门槛即可邀请结盟，让对方的职业能力持续影响诊疗、探索、维修或围攻。' },
   { title: '危险不是纯碰运气', body: '选项会先显示受险概率。系统再生成 1—100 的种子随机值：大于风险线就安全，低于风险线会受损，低于风险线一半会是严重后果。状态、装备、情报、难度和债务都会改变风险线。' },
 ];
 
@@ -77,6 +79,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const [shop, setShop] = useState<StoreId | null>(() => state.shoppingTrip?.store ?? null);
   const [drawer, setDrawer] = useState(false);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const event = state.currentEventId ? EVENT_MAP[state.currentEventId] : undefined;
   const difficultyConfig = DIFFICULTY_MAP[state.difficulty];
   const activeWish = state.dailyPlan ? DAILY_WISH_MAP[state.dailyPlan.wishId] : undefined;
@@ -90,6 +93,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
     if (ok) {
       setMode('main');
       setSelectedTargetId(null);
+      setSelectedContactId(null);
     }
     return ok;
   };
@@ -318,6 +322,40 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           { id: 'repay-minimum', label: `偿还最低额 ¥${debtPaymentAmount(state, 'minimum')}`, hint: `30分钟 · 当前债务 ¥${state.debt.balance}`, disabledReason: repayDebtDisabledReason(state, 'minimum'), onSelect: () => run(repayDebt(state, 'minimum')) },
           { id: 'repay-all', label: `一次结清 ¥${debtPaymentAmount(state, 'all')}`, hint: '30分钟 · 结清后立即移除债务危险加成', disabledReason: repayDebtDisabledReason(state, 'all'), onSelect: () => run(repayDebt(state, 'all')) },
         ] : []),
+        { id: 'back', label: '返回联络面板', hint: '不耗时', onSelect: () => setMode('contact') },
+      ];
+    }
+    if (mode === 'contact') {
+      const unlocked = NPCS.filter((npc) => isNpcUnlocked(state, npc.id));
+      const selectedNpc = selectedContactId ? NPCS.find((npc) => npc.id === selectedContactId) : undefined;
+      if (selectedNpc) {
+        const allied = state.flags.includes(npcAllianceFlag(selectedNpc.id));
+        return [
+          ...contactOptions(selectedNpc.id).map((option) => ({
+            id: `contact-${selectedNpc.id}-${option.id}`,
+            label: option.label,
+            hint: `${contactCostText(state)} · ${option.hint}`,
+            disabledReason: activeContactDisabledReason(state, selectedNpc.id, option.id),
+            onSelect: () => run(performActiveContact(state, selectedNpc.id, option.id)),
+          })),
+          {
+            id: `contact-${selectedNpc.id}-alliance`,
+            label: allied ? `已结盟 · ${selectedNpc.talentName}` : `邀请结盟 · ${selectedNpc.talentName}`,
+            hint: `${contactCostText(state)} · 需要信任 ${selectedNpc.allianceThreshold} · ${selectedNpc.talentDescription}`,
+            disabledReason: activeContactDisabledReason(state, selectedNpc.id, 'alliance'),
+            onSelect: () => run(performActiveContact(state, selectedNpc.id, 'alliance')),
+          },
+          { id: 'back-contacts', label: '选择其他联络人', hint: '不耗时', onSelect: () => setSelectedContactId(null) },
+        ];
+      }
+      return [
+        ...(!unlocked.length ? [{ id: 'contact-locked', label: '尚未建立人物联络', hint: '先收听广播，每次有效收听会解锁一名人物', disabledReason: '当前没有可主动联系的人', onSelect: () => undefined }] : unlocked.map((npc) => ({
+          id: `contact-${npc.id}`,
+          label: `${state.flags.includes(npcAllianceFlag(npc.id)) ? '盟友' : '主动联络'} · ${npc.name}`,
+          hint: `${npc.role} · 信任 ${state.relationships[npc.id] ?? 0}/${npc.allianceThreshold} · ${npc.talentName}：${npc.talentDescription}`,
+          onSelect: () => setSelectedContactId(npc.id),
+        }))),
+        { id: 'trade-board', label: state.debt ? '今日报价与偿还债务' : '查看幸存者今日报价', hint: state.debt ? `随机物资报价 · 当前债务 ¥${state.debt.balance}` : '报价按日期随机刷新，与主动联络分开计算', onSelect: () => setMode('trade') },
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
       ];
     }
@@ -343,7 +381,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       { id: 'repair', label: '修缮避难所', hint: '2小时 · 有工具与胶带时完整度 +16', disabledReason: timedReason(state, 120), onSelect: () => run(performSurvivalAction(state, 'repair')) },
       { id: 'craft', label: '家具、烹饪与制作', hint: '使用自带厨房家具，或进行净水和加固', disabledReason: minutesRemaining(state) < 20 ? '今天已没有制作时间' : null, onSelect: () => setMode('craft') },
       { id: 'radio', label: '收听广播', hint: `${formatDuration(radioMinutes)} · 优先耗电 2 或电池 1`, disabledReason: timedReason(state, radioMinutes) ?? (inventoryCount(state.inventory, 'radio') < 1 ? '缺少短波收音机' : null), onSelect: () => run(performSurvivalAction(state, 'radio')) },
-      { id: 'trade', label: state.debt ? '今日报价与偿还债务' : '幸存者今日报价', hint: state.debt ? `每日随机刷新物资报价，或处理 ¥${state.debt.balance} 未结贷款` : '根据已联络人物每日随机刷新，网页刷新不会重抽', disabledReason: timedReason(state, 30), onSelect: () => setMode('trade') },
+      { id: 'contact', label: state.debt ? '联络、交易与偿还债务' : '主动联络与幸存者交易', hint: '主动选择已解锁人物，培养信任、提供物资或邀请结盟', onSelect: () => { setSelectedContactId(null); setMode('contact'); } },
       { id: 'explore', label: '外出探索', hint: `4小时 · 选择 6 个地点之一 · ${state.difficulty === 'easy' ? '简易额外战利品 +1' : '危险受状态影响'}`, disabledReason: timedReason(state, 240), onSelect: () => setMode('explore') },
       { id: 'power', label: '供电与夜间负载', hint: `当前 ${state.shelter.power} 电 · 调整保鲜、照明或节电策略`, onSelect: () => setMode('power') },
       ...(state.survivalDay >= truthDay && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') ? [{ id: 'truth', label: '搭建外联中继', hint: '3小时 · 每轮只有一次发送窗口；失败后仍可普通撤离', disabledReason: truthEndingReady(state) ? timedReason(state, 180) : `需要证据 3（${truthEvidenceCount(state)}）、盟友 2（${trustedNpcCount(state)}）与已解码广播`, danger: `${dangerRisk(state, 46).risk}% 受险`, onSelect: () => run(performSurvivalAction(state, 'truth')) }] : []),
@@ -371,7 +409,9 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                         ? '家具、烹饪与制作'
                         : mode === 'power'
                           ? '备用供电与夜间负载'
-                          : '今日幸存者报价';
+                          : mode === 'contact'
+                            ? selectedContactId ? `主动联络 · ${NPCS.find((npc) => npc.id === selectedContactId)?.name ?? '幸存者'}` : '幸存者联络与结盟'
+                            : '今日幸存者报价';
   const actionSubtitle = state.dailySettlement
     ? state.dailySettlement.wishAchieved
       ? `愿望点余额 ${state.dailyPoints} · 选择一项今日奖励`
@@ -386,6 +426,8 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             ? '选择将耗时 30 分钟并写入日志'
             : mode === 'trade'
               ? `封锁第 ${state.survivalDay} 天 · 报价明日刷新；重载网页不会改变今日结果`
+              : mode === 'contact'
+                ? '每名人物每天可主动联络一次；通讯优先使用 1 点电力，其次电池，也可手摇发电'
               : `当前 ${formatClock(state.clockMinutes)} · 距日终 ${formatDuration(minutesRemaining(state))}`;
 
   return (
@@ -569,11 +611,12 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                     </article>
                   );
                 }
+                const allied = state.flags.includes(npcAllianceFlag(npc.id));
                 return (
                   <article key={npc.id}>
                     <div><strong>{npc.name}</strong><span>{npc.role}</span></div>
-                    <em className={relation < 0 ? 'negative' : relation >= 18 ? 'trusted' : ''}>{relation >= 18 ? '盟友' : relation > 0 ? `信任 ${relation}` : relation < 0 ? `戒备 ${relation}` : '陌生'}</em>
-                    <p>{npc.stance}</p>
+                    <em className={relation < 0 ? 'negative' : allied || relation >= npc.allianceThreshold ? 'trusted' : ''}>{allied ? '已结盟' : relation >= npc.allianceThreshold ? `可邀请结盟 · ${relation}` : relation > 0 ? `信任 ${relation}/${npc.allianceThreshold}` : relation < 0 ? `戒备 ${relation}` : '陌生'}</em>
+                    <p>{npc.stance}<br />职业能力：{npc.talentName}——{npc.talentDescription}</p>
                   </article>
                 );
               })}

@@ -180,8 +180,9 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
     if (next.shelter.fuel >= 2) next = applyEffect(next, { shelter: { fuel: -2 }, stats: { morale: 2 } }, '寒潮取暖');
     else next = applyEffect(next, { stats: { health: -5, morale: -3 } }, '寒潮失温');
   }
-  if (next.injuries.includes('外伤')) next = applyEffect(next, { stats: { health: -3 } }, '未处理外伤');
-  if (next.injuries.includes('感染迹象')) next = applyEffect(next, { stats: { health: -5 } }, '感染加重');
+  const alliedWithLin = next.flags.includes('npc-allied:lin-zhou');
+  if (next.injuries.includes('外伤')) next = applyEffect(next, { stats: { health: alliedWithLin ? -1 : -3 } }, alliedWithLin ? '林舟 · 创伤分级' : '未处理外伤');
+  if (next.injuries.includes('感染迹象')) next = applyEffect(next, { stats: { health: alliedWithLin ? -3 : -5 } }, alliedWithLin ? '林舟 · 创伤分级' : '感染加重');
   if (next.stats.satiety < 20) next = applyEffect(next, { stats: { health: next.stats.satiety === 0 ? -15 : -8 } }, '严重饥饿');
   if (next.stats.hydration < 20) next = applyEffect(next, { stats: { health: next.stats.hydration === 0 ? -22 : -12 } }, '严重脱水');
 

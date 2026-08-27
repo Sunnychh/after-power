@@ -6,6 +6,7 @@ import { ITEMS } from '../game/data/items.ts';
 import { RECIPES } from '../game/data/recipes.ts';
 import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { TRADE_OFFERS } from '../game/data/trades.ts';
+import { CONTACTS } from '../game/data/contacts.ts';
 
 function assertUniqueIds(label: string, entries: Array<{ id: string }>) {
   const ids = entries.map((entry) => entry.id);
@@ -20,6 +21,7 @@ test('物品、事件、地点、人物与配方 ID 均唯一', () => {
   assertUniqueIds('人物', NPCS);
   assertUniqueIds('配方', RECIPES);
   assertUniqueIds('交易报价', TRADE_OFFERS);
+  assertUniqueIds('主动联络人物', CONTACTS.map((contact) => ({ id: contact.npcId })));
 });
 
 test('全部内容引用都指向实际存在的物品和人物', () => {
@@ -42,6 +44,8 @@ test('全部内容引用都指向实际存在的物品和人物', () => {
   for (const event of EVENTS) {
     if (event.npc) assert.ok(npcIds.has(event.npc), `事件 ${event.id} 引用了不存在的人物 ${event.npc}`);
     if (event.minDay !== undefined && event.maxDay !== undefined) assert.ok(event.minDay <= event.maxDay, `事件 ${event.id} 日期范围倒置`);
+    for (const difficulty of event.difficulties ?? []) assert.ok(DIFFICULTIES.some((entry) => entry.id === difficulty), `事件 ${event.id} 引用了不存在的难度 ${difficulty}`);
+    for (const itemId of event.inventoryAny ?? []) requireItem(`事件 ${event.id} 的库存触发`, itemId);
     for (const [index, option] of event.options.entries()) {
       for (const requirement of option.requirements ?? []) if (requirement.item) requireItem(`事件 ${event.id} 选项 ${index + 1}`, requirement.item);
       for (const [itemId, delta] of Object.entries(option.effects?.inventory ?? {})) {
@@ -57,6 +61,16 @@ test('全部内容引用都指向实际存在的物品和人物', () => {
         assert.ok(npcIds.has(npcId), `事件 ${event.id} 选项 ${index + 1} 引用了不存在的人物 ${npcId}`);
       }
       if (option.danger !== undefined) assert.ok(option.danger > 0 && option.danger <= 100, `事件 ${event.id} 的危险值越界`);
+    }
+  }
+  for (const contact of CONTACTS) {
+    assert.ok(npcIds.has(contact.npcId), `主动联络引用了不存在的人物 ${contact.npcId}`);
+    for (const option of contact.options) {
+      for (const requirement of option.requirements ?? []) if (requirement.item) requireItem(`主动联络 ${contact.npcId}`, requirement.item);
+      for (const [itemId, delta] of Object.entries(option.effects?.inventory ?? {})) {
+        requireItem(`主动联络 ${contact.npcId}`, itemId);
+        if (delta < 0) assert.ok(option.requirements?.some((requirement) => requirement.item === itemId && (requirement.quantity ?? 1) >= -delta));
+      }
     }
   }
   for (const offer of TRADE_OFFERS) {
