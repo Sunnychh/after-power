@@ -29,7 +29,7 @@ export const DIFFICULTIES: DifficultyDefinition[] = [
     startMoney: 720,
     carryCapacity: 92,
     shoppingCarryCapacity: 18,
-    startingShelter: { integrity: 60, water: 12, power: 14, fuel: 10, storage: 90, generator: 1 },
+    startingShelter: { integrity: 60, water: 12, power: 14, fuel: 10, generator: 1 },
     startingInventory: {
       'water-bottle': 4,
       crackers: 3,

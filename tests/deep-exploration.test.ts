@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEEP_LOCATIONS } from '../game/data/deep-exploration.ts';
 import { ITEM_MAP } from '../game/data/items.ts';
-import { adjustedDeepLoot, beginDeepExplore, deepOptionDisabledReason, deepTargetCompletionFlag, hardDeepLootRetention, isDeepTargetResolved, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
+import { adjustedDeepLoot, beginDeepExplore, deepOptionDisabledReason, deepTargetCompletionFlag, deepTargetRefreshMode, hardDeepLootRetention, isDeepTargetResolved, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { loadGame, saveGame } from '../game/engine/save.ts';
 import { absoluteDay, createInitialState } from '../game/engine/state.ts';
@@ -246,4 +246,28 @@ test('困难地图刷新量随封锁日递减，后期单件货格可能为空',
     if (!lateSingle.batteries) emptySlots += 1;
   }
   assert.ok(emptySlots > 0, '后期单件货格应该存在刷空的确定性种子');
+});
+
+test('标准模式重复搜索同一地点会逐步枯竭，简易模式保持宽松刷新', () => {
+  const loot = { crackers: 4, 'water-bottle': 4 };
+  const normal = createInitialState('normal-repeat-loot', [], 0, 'normal');
+  const first = adjustedDeepLoot(normal, loot, 'riverside-market:test-shelf:take');
+  normal.visited['riverside-market'] = 4;
+  const repeated = adjustedDeepLoot(normal, loot, 'riverside-market:test-shelf:take');
+  const easy = createInitialState('easy-repeat-loot', [], 0, 'easy');
+  easy.visited['riverside-market'] = 8;
+  const easyRepeated = adjustedDeepLoot(easy, loot, 'riverside-market:test-shelf:take');
+  const units = (value: Record<string, number>) => Object.values(value).reduce((sum, quantity) => sum + quantity, 0);
+  assert.ok(units(repeated) < units(first));
+  assert.deepEqual(easyRepeated, loot);
+});
+
+test('变电站蓄电柜是本轮一次性电源，不能按日重复刷电', () => {
+  const target = DEEP_LOCATIONS['north-substation'].scenes
+    .flatMap((scene) => scene.targets)
+    .find((entry) => entry.id === 'battery-bank');
+  assert.ok(target);
+  assert.equal(deepTargetRefreshMode(target), 'once');
+  assert.equal(target.resolvedByFlag, 'substation-battery-bank-drained');
+  assert.ok(target.options.every((option) => option.addFlags?.includes('substation-battery-bank-drained')));
 });

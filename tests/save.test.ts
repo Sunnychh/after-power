@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clearGame, loadGame, loadMeta, saveGame, saveMeta } from '../game/engine/save.ts';
-import { createInitialState, GAME_SAVE_KEY, LEGACY_GAME_SAVE_KEY, PREVIOUS_GAME_SAVE_KEY } from '../game/engine/state.ts';
+import { createInitialState, GAME_SAVE_KEY, LEGACY_GAME_SAVE_KEY, PREVIOUS_GAME_SAVE_KEY, VERSION2_GAME_SAVE_KEY } from '../game/engine/state.ts';
 import type { StorageLike } from '../game/types.ts';
 import { visitStore } from '../game/engine/actions.ts';
 
@@ -21,6 +21,25 @@ test('存档可完整恢复待处理事件与随机状态', () => {
   assert.deepEqual(loadGame(storage), state);
 });
 
+test('当前 v4 存档恢复不会把已经衰减为零的同类疲劳重新补回', () => {
+  const storage = new MemoryStorage();
+  const state = createInitialState('save-family-zero');
+  state.foodFatigue = { 'dish-vegetable-congee': 1 };
+  state.foodFamilyFatigue = {};
+  state.eatenFoodIds = ['dish-vegetable-congee'];
+  saveGame(storage, state);
+  assert.deepEqual(loadGame(storage), state);
+});
+
+test('旧局已经按日取过变电站蓄电柜时会迁移为永久耗尽', () => {
+  const storage = new MemoryStorage();
+  const state = createInitialState('save-old-battery-bank');
+  state.flags.push('deep:north-substation:battery-bank:day:8');
+  saveGame(storage, state);
+  const restored = loadGame(storage);
+  assert.ok(restored?.flags.includes('substation-battery-bank-drained'));
+});
+
 test('旧存档缺少供电策略或含旧式高等级时会安全折算', () => {
   const storage = new MemoryStorage();
   const state = createInitialState('power-save-normalize');
@@ -29,7 +48,11 @@ test('旧存档缺少供电策略或含旧式高等级时会安全折算', () =>
   const legacyShape = structuredClone(state) as unknown as Record<string, unknown>;
   delete legacyShape.powerPolicy;
   delete legacyShape.foodBoredom;
+  delete legacyShape.foodFatigue;
+  delete legacyShape.foodFamilyFatigue;
+  delete legacyShape.eatenFoodIds;
   delete legacyShape.recentMeals;
+  if (legacyShape.shelter && typeof legacyShape.shelter === 'object') delete (legacyShape.shelter as Record<string, unknown>).rawWater;
   delete legacyShape.powerTrap;
   delete legacyShape.discoveredRecipes;
   if (legacyShape.dailyPlan && typeof legacyShape.dailyPlan === 'object') delete (legacyShape.dailyPlan as Record<string, unknown>).commissions;
@@ -39,7 +62,11 @@ test('旧存档缺少供电策略或含旧式高等级时会安全折算', () =>
   assert.equal(restored.shelter.generator, 3);
   assert.equal(restored.shelter.power, 31);
   assert.equal(restored.foodBoredom, 0);
+  assert.deepEqual(restored.foodFatigue, {});
+  assert.deepEqual(restored.foodFamilyFatigue, {});
+  assert.deepEqual(restored.eatenFoodIds, []);
   assert.deepEqual(restored.recentMeals, []);
+  assert.equal(restored.shelter.rawWater, 0);
   assert.deepEqual(restored.powerTrap, { level: 0, armed: false });
   assert.deepEqual(restored.discoveredRecipes, []);
   assert.ok((restored.dailyPlan?.commissions?.length ?? 0) > 0);
@@ -147,7 +174,7 @@ test('恢复存档会修复终局互斥状态与碰撞日志 ID', () => {
   assert.deepEqual(restored.feedback, []);
 });
 
-test('v1 存档迁移为标准难度时钟制并保留进度', () => {
+test('v1 存档迁移为 v4 标准难度时钟制并保留进度', () => {
   const storage = new MemoryStorage();
   const current = createInitialState('legacy');
   current.money = 321;
@@ -167,7 +194,7 @@ test('v1 存档迁移为标准难度时钟制并保留进度', () => {
   delete legacy.shoppingTrip;
   storage.setItem(LEGACY_GAME_SAVE_KEY, JSON.stringify(legacy));
   const migrated = loadGame(storage);
-  assert.equal(migrated?.version, 3);
+  assert.equal(migrated?.version, 4);
   assert.equal(migrated?.difficulty, 'normal');
   assert.equal(migrated?.money, 321);
   assert.ok(migrated?.flags.includes('legacy-flag'));
@@ -180,7 +207,7 @@ test('v1 存档迁移为标准难度时钟制并保留进度', () => {
   assert.deepEqual(migrated?.storePurchases, {});
 });
 
-test('v2 存档迁移为 v3 每日愿望系统且保留当前局', () => {
+test('v2 存档迁移为 v4 每日愿望系统且保留当前局', () => {
   const storage = new MemoryStorage();
   const current = createInitialState('v2-migration', [], 0, 'easy');
   current.money = 456;
@@ -195,9 +222,9 @@ test('v2 存档迁移为 v3 每日愿望系统且保留当前局', () => {
   delete version2.isolationNights;
   delete version2.storePurchases;
   delete version2.shoppingTrip;
-  storage.setItem(PREVIOUS_GAME_SAVE_KEY, JSON.stringify(version2));
+  storage.setItem(VERSION2_GAME_SAVE_KEY, JSON.stringify(version2));
   const migrated = loadGame(storage);
-  assert.equal(migrated?.version, 3);
+  assert.equal(migrated?.version, 4);
   assert.equal(migrated?.difficulty, 'easy');
   assert.equal(migrated?.money, 456);
   assert.equal(migrated?.dailyPoints, 0);
@@ -208,6 +235,50 @@ test('v2 存档迁移为 v3 每日愿望系统且保留当前局', () => {
   assert.equal(migrated?.cookingSkill, 0);
   assert.equal(migrated?.isolationNights, 0);
   assert.deepEqual(migrated?.storePurchases, {});
+});
+
+test('v3 旧存档不会用过期的历史日志把现存净水误降级为原水', () => {
+  const storage = new MemoryStorage();
+  const current = createInitialState('v3-raw-water', [], 0, 'normal', false);
+  current.shelter.water = 18;
+  current.flags.push('pump-restarted');
+  current.recentMeals = ['canned-beans', 'canned-beans'];
+  const version3 = structuredClone(current) as unknown as Record<string, unknown>;
+  version3.version = 3;
+  delete version3.foodFatigue;
+  delete version3.foodFamilyFatigue;
+  delete version3.eatenFoodIds;
+  delete version3.lastContactDay;
+  if (version3.shelter && typeof version3.shelter === 'object') delete (version3.shelter as Record<string, unknown>).rawWater;
+  storage.setItem(PREVIOUS_GAME_SAVE_KEY, JSON.stringify(version3));
+
+  const migrated = loadGame(storage)!;
+  assert.equal(migrated.version, 4);
+  assert.equal(migrated.shelter.water, 18);
+  assert.equal(migrated.shelter.rawWater, 0);
+  assert.equal(migrated.shelter.water + migrated.shelter.rawWater, 18);
+  assert.equal(migrated.foodFatigue['canned-beans'], 16);
+  assert.ok(migrated.eatenFoodIds.includes('canned-beans'));
+  assert.ok(migrated.foodFamilyFatigue['豆类'] > 0);
+});
+
+test('v3 历史上的原水已用完后取得净水，升级不会改变其可饮用性', () => {
+  const storage = new MemoryStorage();
+  const current = createInitialState('v3-water-provenance', [], 0, 'hard', false);
+  current.phase = 'survival';
+  current.survivalDay = 9;
+  current.shelter.water = 8;
+  current.flags.push('pump-restarted');
+  current.logs.push({ id: 'old-raw', dayLabel: '封锁第 2 天', title: '天台积水', body: '你贴上“未处理”的纸条。', tone: 'story' });
+  current.logs.push({ id: 'new-clean', dayLabel: '封锁第 9 天', title: '警戒线正在掉电', body: '潘岳把接出的净水优先送回你门口。', tone: 'story' });
+  const version3 = structuredClone(current) as unknown as Record<string, unknown>;
+  version3.version = 3;
+  if (version3.shelter && typeof version3.shelter === 'object') delete (version3.shelter as Record<string, unknown>).rawWater;
+  storage.setItem(PREVIOUS_GAME_SAVE_KEY, JSON.stringify(version3));
+
+  const migrated = loadGame(storage)!;
+  assert.equal(migrated.shelter.water, 8);
+  assert.equal(migrated.shelter.rawWater, 0);
 });
 
 test('损坏的新键不会回退并复活旧存档', () => {
@@ -227,6 +298,7 @@ test('清除本轮不影响轮回记忆', () => {
   assert.equal(loadGame(storage), null);
   assert.equal(storage.getItem(GAME_SAVE_KEY), null);
   assert.equal(storage.getItem(PREVIOUS_GAME_SAVE_KEY), null);
+  assert.equal(storage.getItem(VERSION2_GAME_SAVE_KEY), null);
   assert.equal(storage.getItem(LEGACY_GAME_SAVE_KEY), null);
   assert.deepEqual(loadMeta(storage), meta);
 });

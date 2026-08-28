@@ -1,45 +1,25 @@
 import { DIFFICULTY_MAP } from '../data/difficulties.ts';
-import { ITEM_MAP, ITEMS } from '../data/items.ts';
+import { ITEM_MAP } from '../data/items.ts';
 import { POWER_POLICY_MAP } from '../data/power.ts';
 import { survivalPressure } from '../data/pressure.ts';
-import type { GameState, Inventory, ItemDefinition } from '../types.ts';
+import type { GameState, Inventory } from '../types.ts';
 import { createDailySettlement, dailyActionBlockedReason, recordDailyAction } from './daily.ts';
 import { determineOutcome, finishRun } from './outcomes.ts';
-import { expireItems, inventoryCount, removeItem } from './inventory.ts';
-import { applyFoodVariety } from './nutrition.ts';
+import { expireItems, inventoryCount } from './inventory.ts';
+import { recoverFoodFatigue } from './nutrition.ts';
+import { AUTO_RATION_TARGET, consumeAutoRation, findAutoRation, topUpFromStoredWater } from './rations.ts';
+import { calculateNightNeedStress } from './needs.ts';
 import { assessDebtNight } from './loan.ts';
-import { resolveHardSiegeWave } from './siege.ts';
+import { nightPowerBudget, resolveHardSiegeWave } from './siege.ts';
 import { absoluteDay, addFlag, applyEffect, createLog, selectEvent, weatherForDay } from './state.ts';
 import { dayEndMinutes, PREP_DAY_START, SURVIVAL_DAY_START } from './time.ts';
 
 export type EngineResult = { state: GameState; ok: boolean; message?: string };
 
-function findRation(state: GameState, tag: 'food' | 'water'): ItemDefinition | undefined {
-  return ITEMS
-    .filter((item) => item.tags?.includes(tag) && inventoryCount(state.inventory, item.id) > 0)
-    .sort((a, b) => {
-      const aExpiry = Math.min(...(state.inventory[a.id] ?? []).map((batch) => batch.expiresOn ?? Infinity));
-      const bExpiry = Math.min(...(state.inventory[b.id] ?? []).map((batch) => batch.expiresOn ?? Infinity));
-      if (aExpiry !== bExpiry) return aExpiry - bExpiry;
-      const aRestore = tag === 'food' ? a.effects?.satiety ?? 0 : a.effects?.hydration ?? 0;
-      const bRestore = tag === 'food' ? b.effects?.satiety ?? 0 : b.effects?.hydration ?? 0;
-      return aRestore - bRestore;
-    })[0];
-}
-
-function consumeRation(state: GameState, item: ItemDefinition, reason: string): { state: GameState; consumed: boolean; varietyText?: string } {
-  const removed = removeItem(state.inventory, item.id, 1);
-  if (!removed) return { state, consumed: false };
-  let next = { ...structuredClone(state), inventory: removed };
-  next = applyEffect(next, { stats: item.effects }, reason);
-  let varietyText: string | undefined;
-  if (item.tags?.includes('food')) {
-    const variety = applyFoodVariety(next, item);
-    next = variety.state;
-    varietyText = `${variety.message} 饮食厌倦 ${next.foodBoredom}/100。`;
-  }
-  next.feedback.push({ id: `${next.runId}-ration-${next.logs.length}-${item.id}`, label: item.name, delta: -1, reason });
-  return { state: next, consumed: true, varietyText };
+function aggregateConsumed(consumed: string[]): string {
+  const counts = new Map<string, number>();
+  for (const name of consumed) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return [...counts].map(([name, quantity]) => quantity > 1 ? `${name} ×${quantity}` : name).join('、');
 }
 
 export function extendColdStorage(inventory: Inventory, currentDay: number): { inventory: Inventory; preserved: number } {
@@ -105,6 +85,11 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
       next.logs = [...next.logs, createLog(next, '提前就寝', '你关掉清单，给明天留出一副清醒的脑子。', 'system')];
     }
     next = applyEffect(next, { stats: { stamina: 24, morale: 1 } }, '灾前夜间休息');
+    const fatigueRecovery = recoverFoodFatigue(next);
+    next = fatigueRecovery.state;
+    if (fatigueRecovery.boredomRecovered) {
+      next.logs.push(createLog(next, '饮食印象淡化', `一夜过去，饮食厌倦自然缓解 ${fatigueRecovery.boredomRecovered} 点；单品和同类口感的熟悉度也略有回落。`, 'system'));
+    }
     if (next.prepDay >= 7) {
       next.phase = 'survival';
       next.survivalDay = 1;
@@ -137,41 +122,57 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   const waterDrain = pressure.waterDrain;
   const staminaGain = pressure.staminaRecovery;
   const moraleDrain = pressure.moraleDrain;
+  const baseStatsBefore = { ...next.stats };
   next = applyEffect(next, { stats: { satiety: -foodDrain, hydration: -waterDrain, stamina: staminaGain, morale: -moraleDrain } }, '夜间基础消耗');
+  const baseStatsDelta = {
+    satiety: next.stats.satiety - baseStatsBefore.satiety,
+    hydration: next.stats.hydration - baseStatsBefore.hydration,
+    stamina: next.stats.stamina - baseStatsBefore.stamina,
+    morale: next.stats.morale - baseStatsBefore.morale,
+  };
   const consumed: string[] = [];
   const varietyNotes: string[] = [];
-  const food = next.autoRations && next.stats.satiety < 60 ? findRation(next, 'food') : undefined;
-  if (food) {
-    const ration = consumeRation(next, food, '夜间配给');
-    next = ration.state;
-    if (ration.consumed) consumed.push(food.name);
-    if (ration.varietyText) varietyNotes.push(ration.varietyText);
+  if (next.autoRations) {
+    for (let guard = 0; guard < 8 && next.stats.satiety < AUTO_RATION_TARGET; guard += 1) {
+      const food = findAutoRation(next, 'food');
+      if (!food) break;
+      const ration = consumeAutoRation(next, food, '夜间自动配给');
+      if (!ration.consumed) break;
+      next = ration.state;
+      consumed.push(food.name);
+      if (ration.varietyText) varietyNotes.push(ration.varietyText);
+    }
+    for (let guard = 0; guard < 8 && next.stats.hydration < AUTO_RATION_TARGET; guard += 1) {
+      const water = findAutoRation(next, 'water');
+      if (!water) break;
+      const ration = consumeAutoRation(next, water, '夜间自动配给');
+      if (!ration.consumed) break;
+      next = ration.state;
+      consumed.push(water.name);
+    }
   }
-  const water = next.autoRations && next.stats.hydration < 60 ? findRation(next, 'water') : undefined;
-  if (next.autoRations && next.stats.hydration < 60 && water) {
-    const ration = consumeRation(next, water, '夜间配给');
-    next = ration.state;
-    if (ration.consumed) consumed.push(water.name);
-  } else if (next.autoRations && next.stats.hydration < 60 && next.shelter.water >= 1) {
-    const waterUsed = Math.min(4, next.shelter.water, Math.max(1, Math.ceil((60 - next.stats.hydration) / 6)));
-    next = applyEffect(next, { shelter: { water: -waterUsed }, stats: { hydration: waterUsed * 6 } }, '使用水箱储水');
-    consumed.push(`水箱储水 ${waterUsed} 单位`);
+  if (next.autoRations && next.stats.hydration < AUTO_RATION_TARGET && next.shelter.water >= 1) {
+    const toppedUp = topUpFromStoredWater(next, '使用水箱储水');
+    next = toppedUp.state;
+    consumed.push(`水箱储水 ${toppedUp.used} 单位`);
   }
 
   const policy = POWER_POLICY_MAP[next.powerPolicy];
   const powerBefore = next.shelter.power;
+  const plannedPower = nightPowerBudget(next);
+  const criticalReserve = plannedPower.weatherSpend + plannedPower.trapSpend + plannedPower.alarmSpend;
   const hasPerishables = Object.values(next.inventory).some((batches) => batches.some((batch) => batch.expiresOn !== undefined));
   let powerText = '';
   let fridgeText = '';
   if (next.powerPolicy === 'balanced') {
-    if (next.furniture.fridge.enabled && hasPerishables && next.shelter.power >= 1) {
+    if (next.furniture.fridge.enabled && hasPerishables && next.shelter.power - criticalReserve >= 1) {
       const cold = extendColdStorage(next.inventory, absoluteDay(next));
       next.inventory = cold.inventory;
       next = applyEffect(next, { shelter: { power: -1 } }, '均衡供电 · 冰箱');
       next.furniture.fridge.lastUsedDay = absoluteDay(next);
       fridgeText = `冰箱为 ${cold.preserved} 件易腐物资延长了 1 天保质期。`;
     } else if (hasPerishables) fridgeText = '冷藏回路未能启动，易腐物资继续自然变质。';
-    if (next.shelter.power >= 1) {
+    if (next.shelter.power - criticalReserve >= 1) {
       next = applyEffect(next, { shelter: { power: -1 }, stats: { morale: 2 } }, '均衡供电 · 夜灯');
       powerText = '夜灯亮到入睡，精神 +2。';
     } else {
@@ -179,7 +180,7 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
       powerText = '剩余电力不足以点亮夜灯，精神 -3。';
     }
   } else if (next.powerPolicy === 'cold') {
-    if (next.furniture.fridge.enabled && next.shelter.power >= 2) {
+    if (next.furniture.fridge.enabled && next.shelter.power - criticalReserve >= 2) {
       let cold = extendColdStorage(next.inventory, absoluteDay(next));
       cold = extendColdStorage(cold.inventory, absoluteDay(next));
       next.inventory = cold.inventory;
@@ -191,10 +192,10 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
       fridgeText = '电力不足 2 点，冰箱没有启动，黑暗使精神 -4。';
     }
   } else if (next.powerPolicy === 'light') {
-    if (next.shelter.power >= 2) {
+    if (next.shelter.power - criticalReserve >= 2) {
       next = applyEffect(next, { shelter: { power: -2 }, stats: { morale: 5, stamina: 3 } }, '照明优先');
       powerText = '工作灯与充电排插运行整夜，精神 +5、体力 +3。';
-    } else if (next.shelter.power === 1) {
+    } else if (next.shelter.power - criticalReserve === 1) {
       next = applyEffect(next, { shelter: { power: -1 }, stats: { morale: 1 } }, '照明优先 · 低电量');
       powerText = '只够维持一盏昏暗小灯，精神 +1。';
     } else {
@@ -216,16 +217,54 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
     if (next.shelter.fuel >= 2) next = applyEffect(next, { shelter: { fuel: -2 }, stats: { morale: 2 } }, '寒潮取暖');
     else next = applyEffect(next, { stats: { health: -5, morale: -3 } }, '寒潮失温');
   }
+  // Heat and other late-night drains happen after the first drink; automatic mode gets a final chance to reach its stated target.
+  if (next.autoRations && next.stats.hydration < AUTO_RATION_TARGET) {
+    for (let guard = 0; guard < 8 && next.stats.hydration < AUTO_RATION_TARGET; guard += 1) {
+      const water = findAutoRation(next, 'water');
+      if (!water) break;
+      const ration = consumeAutoRation(next, water, '夜间自动补水');
+      if (!ration.consumed) break;
+      next = ration.state;
+      consumed.push(water.name);
+    }
+    if (next.stats.hydration < AUTO_RATION_TARGET && next.shelter.water >= 1) {
+      const toppedUp = topUpFromStoredWater(next, '夜间自动补水 · 水箱');
+      next = toppedUp.state;
+      consumed.push(`水箱储水 ${toppedUp.used} 单位`);
+    }
+  }
   const alliedWithLin = next.flags.includes('npc-allied:lin-zhou');
+  let infectionAdvancedTonight = false;
+  if (next.injuries.includes('呼吸道不适')) {
+    if (next.flags.includes('respiratory-symptom-night')) {
+      next.injuries = next.injuries.filter((injury) => injury !== '呼吸道不适');
+      next = applyEffect(next, { stats: { health: -4, morale: -2 }, injury: '感染迹象', removeFlags: ['respiratory-symptom-night'] }, '呼吸道症状恶化');
+      infectionAdvancedTonight = true;
+      next.logs.push(createLog(next, '症状恶化 · 感染迹象', '连续两夜的咳嗽转为发热和胸闷。抗生素现在能处理这项伤病；继续拖延会每夜损失健康。', 'bad'));
+    } else {
+      next = applyEffect(next, { stats: { health: -2, morale: -1 }, addFlags: ['respiratory-symptom-night'] }, '呼吸道不适');
+    }
+  } else {
+    next.flags = next.flags.filter((flag) => flag !== 'respiratory-symptom-night');
+  }
   if (next.injuries.includes('外伤')) next = applyEffect(next, { stats: { health: alliedWithLin ? -2 : -3 } }, alliedWithLin ? '林舟 · 创伤分级' : '未处理外伤');
-  if (next.injuries.includes('感染迹象')) next = applyEffect(next, { stats: { health: alliedWithLin ? -4 : -5 } }, alliedWithLin ? '林舟 · 创伤分级' : '感染加重');
+  if (next.injuries.includes('感染迹象') && !infectionAdvancedTonight) next = applyEffect(next, { stats: { health: alliedWithLin ? -4 : -5 } }, alliedWithLin ? '林舟 · 创伤分级' : '感染加重');
+  const needStress = calculateNightNeedStress(next);
+  if (needStress.moralePenalty || needStress.staminaPenalty) {
+    next = applyEffect(next, { stats: { morale: -needStress.moralePenalty, stamina: -needStress.staminaPenalty } }, '饥渴与饮食压力');
+  }
+  const healthBeforeStarvation = next.stats.health;
   if (next.stats.satiety < 20) next = applyEffect(next, { stats: { health: next.stats.satiety === 0 ? -15 : -8 } }, '严重饥饿');
   if (next.stats.hydration < 20) next = applyEffect(next, { stats: { health: next.stats.hydration === 0 ? -22 : -12 } }, '严重脱水');
+  const starvationHealthLoss = healthBeforeStarvation - next.stats.health;
+
+  const fatigueRecovery = recoverFoodFatigue(next);
+  next = fatigueRecovery.state;
 
   next.logs = [...next.logs, createLog(
     next,
     `${next.weather} · 夜间结算`,
-    `${pressure.name}：饱腹 -${foodDrain}，水分 -${waterDrain}，睡眠体力 +${staminaGain}，精神 -${moraleDrain}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给：${consumed.join('、')}。` : '已开启自动补充，但当前无需或没有可用配给。'}${varietyNotes.join(' ')}供电策略：${policy.name}，电力 ${powerBefore} → ${next.shelter.power}。${powerText}${fridgeText}`,
+    `${pressure.name}基础结算（实际变化）：饱腹 ${baseStatsDelta.satiety}，水分 ${baseStatsDelta.hydration}，体力 ${baseStatsDelta.stamina >= 0 ? '+' : ''}${baseStatsDelta.stamina}，精神 ${baseStatsDelta.morale}。${!next.autoRations ? '自动补充已关闭，请在白天自行使用食物和饮水。' : consumed.length ? `自动配给至目标线：${aggregateConsumed(consumed)}。` : '已开启自动补充，但当前无需或没有可用配给。'}${next.autoRations && (next.stats.satiety < AUTO_RATION_TARGET || next.stats.hydration < AUTO_RATION_TARGET) ? `库存不足，结算后仍为饱腹 ${next.stats.satiety}、水分 ${next.stats.hydration}。` : ''}${varietyNotes.slice(-3).join(' ')}${needStress.moralePenalty || needStress.staminaPenalty ? `饥渴/单调压力：精神 -${needStress.moralePenalty}、睡眠恢复抵消 ${needStress.staminaPenalty}（${needStress.reasons.join('；')}）。` : ''}${starvationHealthLoss ? `严重饥渴造成健康 -${starvationHealthLoss}。` : ''}${fatigueRecovery.boredomRecovered ? `一夜过去，饮食厌倦自然缓解 ${fatigueRecovery.boredomRecovered} 点。` : ''}供电策略：${policy.name}。舒适回路与天气结算后电力 ${powerBefore} → ${next.shelter.power}；整夜预算为策略 ${plannedPower.policySpend}${plannedPower.weatherSpend ? `、暴雨 ${plannedPower.weatherSpend}` : ''}${plannedPower.trapSpend ? `、陷阱 ${plannedPower.trapSpend}` : ''}${plannedPower.alarmSpend ? `、警戒 ${plannedPower.alarmSpend}` : ''}，全部负载结束预计剩余 ${plannedPower.remaining}。${powerText}${fridgeText}`,
     next.stats.health < 35 ? 'bad' : 'system',
   )];
 
@@ -238,14 +277,15 @@ export function endDay(state: GameState, reachedByClock = false): EngineResult {
   const debtOutcome = determineOutcome(next);
   if (debtOutcome) return { state: finishRun(next, debtOutcome), ok: true };
 
-  if (next.broadcasts === 0 && next.stats.morale <= 20) {
+  const daysSinceContact = next.lastContactDay === undefined ? Infinity : Math.max(0, absoluteDay(next) - next.lastContactDay);
+  if (daysSinceContact >= 2 && next.stats.morale <= 20) {
     next.isolationNights += 1;
     next = applyEffect(next, { stats: { health: next.isolationNights >= 2 ? -4 : 0, stamina: -3 } }, '持续孤立');
     next.logs.push(createLog(next, `无人回应 · 第 ${next.isolationNights} 夜`, next.isolationNights >= 2
       ? '你已经连续多夜没有听见任何真实的人声。睡眠被楼道里的幻听切碎；如果再不建立联络或恢复精神，求生意志会彻底崩溃。'
-      : '收音机只有底噪，手机通讯录里的名字都无法接通。这还不是终点，但孤立已经开始消耗身体。', 'bad'));
+      : `${inventoryCount(next.inventory, 'radio') > 0 ? '收音机只有底噪' : '屋里没有能接收外界的收音机'}，手机通讯录里的名字都无法接通。这还不是终点，但孤立已经开始消耗身体。`, 'bad'));
   } else if (next.isolationNights > 0) {
-    next.logs.push(createLog(next, '孤立中断', next.broadcasts > 0 ? '固定频段里终于有人回应。仅仅确认另一个人还活着，就让漫长的夜恢复了边界。' : '你把精神状态拉回危险线以上，重新开始记录日期和行动。', 'good'));
+    next.logs.push(createLog(next, '孤立中断', daysSinceContact < 2 ? '固定频段或门外终于有人回应。仅仅确认另一个人还活着，就让漫长的夜恢复了边界。' : '你把精神状态拉回危险线以上，重新开始记录日期和行动。', 'good'));
     next.isolationNights = 0;
   }
 

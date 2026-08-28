@@ -1,6 +1,7 @@
 import { POWER_POLICY_MAP } from '../data/power.ts';
 import type { GameState, PowerPolicy } from '../types.ts';
 import { createLog } from './state.ts';
+import { nightPowerBudget } from './siege.ts';
 
 export function powerUpgradeSpec(state: GameState): { level: number; money: number; minutes: number; power: number; name: string } | null {
   const level = state.shelter.generator;
@@ -18,12 +19,7 @@ export function setPowerPolicy(state: GameState, policy: PowerPolicy): { state: 
   const next = structuredClone(state);
   next.powerPolicy = policy;
   next.feedback = [];
-  next.logs.push(createLog(next, `供电策略 · ${definition.name}`, `预计每晚使用 ${definition.expectedPower} 点备用电。${definition.description}策略可以随时调整，不消耗游戏时间。`, 'system'));
+  const budget = nightPowerBudget(next);
+  next.logs.push(createLog(next, `供电策略 · ${definition.name}`, `按今晚库存、天气与波次预计共使用 ${budget.totalSpend} 点备用电（策略 ${budget.policySpend}${budget.weatherSpend ? `、暴雨 ${budget.weatherSpend}` : ''}${budget.trapSpend ? `、陷阱 ${budget.trapSpend}` : ''}${budget.alarmSpend ? `、警戒 ${budget.alarmSpend}` : ''}）。${definition.description}策略可以随时调整，不消耗游戏时间。`, 'system'));
   return { state: next, ok: true };
-}
-
-export function projectedPowerNights(state: GameState): number | null {
-  const alarmCost = state.phase === 'survival' && state.difficulty === 'hard' && state.survivalDay >= 8 ? 1 : 0;
-  const cost = POWER_POLICY_MAP[state.powerPolicy].expectedPower + alarmCost;
-  return cost === 0 ? null : Math.floor(state.shelter.power / cost);
 }

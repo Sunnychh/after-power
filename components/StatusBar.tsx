@@ -7,6 +7,7 @@ import { dayEndMinutes, formatClock } from '../game/engine/time.ts';
 import { POWER_POLICY_MAP } from '../game/data/power.ts';
 import { survivalPressure } from '../game/data/pressure.ts';
 import { powerTrapDefinition } from '../game/data/power-traps.ts';
+import { nightPowerBudget } from '../game/engine/siege.ts';
 
 const STATS: Array<{ key: StatKey; label: string }> = [
   { key: 'health', label: '健康' },
@@ -30,7 +31,7 @@ function StatCell({ label, value }: { label: string; value: number }) {
 function BoredomCell({ value }: { value: number }) {
   const level = value >= 70 ? 'danger' : value >= 40 ? 'warning' : 'normal';
   return (
-    <div className={`stat-cell inverse ${level}`} aria-label={`饮食厌倦 ${value}/100；数值越低越好`} title="重复吃同一种食物会提高厌倦并削减精神；更换食物或食用不同料理可降低厌倦。">
+    <div className={`stat-cell inverse ${level}`} aria-label={`饮食厌倦 ${value}/100；数值越低越好`} title="单品熟悉度会跨餐保留，交替少数食物不能重置；真正扩大菜单或尝试新料理只能有限缓解。">
       <div className="stat-heading"><span>厌倦</span><b>{value}</b></div>
       <span className="stat-track" aria-hidden="true"><i style={{ width: `${value}%` }} /></span>
       {level !== 'normal' && <small>{level === 'danger' ? '很厌烦' : '重复'}</small>}
@@ -68,10 +69,15 @@ export function StatusBar({ state, savedAt, onOpenInventory, onOpenSettings, onR
 
 export function StatusDock({ state }: { state: GameState }) {
   const powerPolicy = POWER_POLICY_MAP[state.powerPolicy];
-  const alarmCost = state.phase === 'survival' && state.difficulty === 'hard' && state.survivalDay >= 8 ? 1 : 0;
-  const expectedPower = powerPolicy.expectedPower + alarmCost;
+  const budget = nightPowerBudget(state);
+  const expectedPower = state.phase === 'survival' ? budget.totalSpend : powerPolicy.expectedPower;
   const moraleDrain = survivalPressure(state.difficulty, Math.max(1, state.survivalDay)).moraleDrain;
   const trap = powerTrapDefinition(state.powerTrap.level);
+  const priorityLoads = [
+    budget.weatherSpend ? `暴雨 ${budget.weatherSpend}` : '',
+    budget.trapSpend ? `陷阱 ${budget.trapSpend}` : '',
+    budget.alarmSpend ? `警戒 ${budget.alarmSpend}` : '',
+  ].filter(Boolean).join('、');
   return (
     <aside className="status-dock" aria-label="核心状态">
       <header>
@@ -87,11 +93,11 @@ export function StatusDock({ state }: { state: GameState }) {
         <BoredomCell value={state.foodBoredom} />
         <div className="stat-cell resource-cell" aria-label={`电力 ${state.shelter.power}，${powerPolicy.name}，夜间预计消耗 ${expectedPower}`}>
           <div className="stat-heading"><span>供能</span><b>{state.shelter.power}</b></div>
-          <span className="resource-detail">{powerPolicy.name} · 夜耗约 {expectedPower}{trap ? ` · 陷阱${state.powerTrap.armed ? '接通' : '断开'}` : ''}</span>
+          <span className="resource-detail">{powerPolicy.name} · 今夜预计 {expectedPower}{priorityLoads ? `（${priorityLoads}）` : ''}{trap && !budget.trapSpend ? ` · 陷阱${state.powerTrap.armed ? '电力不足/无波次' : '断开'}` : ''}</span>
         </div>
-        <div className="stat-cell resource-cell" aria-label={`储水 ${state.shelter.water}，燃料 ${state.shelter.fuel}，愿望点 ${state.dailyPoints}`}>
+        <div className="stat-cell resource-cell" aria-label={`净水 ${state.shelter.water}，待净化原水 ${state.shelter.rawWater}，燃料 ${state.shelter.fuel}，愿望点 ${state.dailyPoints}`}>
           <div className="stat-heading"><span>储备</span><b>{state.shelter.water}</b></div>
-          <span className="resource-detail">水 {state.shelter.water} · 燃 {state.shelter.fuel} · 愿望 {state.dailyPoints} · {state.autoRations ? '自动配给' : '手动配给'}</span>
+          <span className="resource-detail">净水 {state.shelter.water} · 原水 {state.shelter.rawWater} · 燃 {state.shelter.fuel} · 愿望 {state.dailyPoints} · {state.autoRations ? '自动配给' : '手动配给'}</span>
         </div>
       </div>
     </aside>

@@ -6,7 +6,7 @@ import { LOCATIONS, NPCS } from '../game/data/world.ts';
 import { endDay, exploreLocation, exploreSubstationControl, performPrepAction, performSurvivalAction, resolveCurrentEvent, substationControlAccess } from '../game/engine/actions.ts';
 import { claimDailyReward, continueAfterMissedWish } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
-import { applyEffect, createInitialState, dangerFactorText, dangerRisk, describeDanger, rollDanger, selectEvent } from '../game/engine/state.ts';
+import { absoluteDay, applyEffect, createInitialState, dangerFactorText, dangerRisk, describeDanger, rollDanger, selectEvent } from '../game/engine/state.ts';
 import { chooseEvacuation } from '../game/engine/outcomes.ts';
 import { ITEM_MAP } from '../game/data/items.ts';
 import { SURVIVAL_DAY_START, dayEndMinutes } from '../game/engine/time.ts';
@@ -56,6 +56,7 @@ test('事件日志的颜色取决于实际危险等级，不会被说明文字�
   let majorChecked = false;
   for (let index = 0; index < 500 && (!minorChecked || !majorChecked); index += 1) {
     const state = survivalState(`event-tone-${index}`);
+    state.inventory = addItem(state.inventory, ITEM_MAP.radio, 1, 8);
     state.currentEventId = 'battery-trade';
     const result = resolveCurrentEvent(state, 1);
     assert.equal(result.ok, true);
@@ -80,26 +81,32 @@ test('真相发送的轻微危险会实际扣除电力和体力，但不会错�
     state.survivalDay = 12;
     state.broadcasts = 3;
     state.shelter.power = 10;
+    state.inventory = addItem(state.inventory, ITEM_MAP.radio, 1, 19);
+    state.inventory = addItem(state.inventory, ITEM_MAP['copper-wire'], 1, 19);
     state.flags.push('truth-window-open', 'decoded-broadcast', 'evidence-signal', 'evidence-ledger', 'evidence-van');
     state.relationships['lin-zhou'] = 20;
     state.relationships['qiu-lan'] = 20;
+    state.lastContactDay = absoluteDay(state) - 3;
     const stamina = state.stats.stamina;
     const result = performSurvivalAction(state, 'truth');
     const log = result.state.logs.findLast((entry) => entry.title === '向封锁线外发送证据');
     if (log?.body.includes('触发轻微后果')) {
       assert.equal(result.ok, true);
-      assert.equal(result.state.shelter.power, 8);
+      assert.equal(result.state.shelter.power, 2);
       assert.equal(result.state.stats.stamina, stamina - 8);
       assert.ok(result.state.flags.includes('truth-transmitted'));
+      assert.equal(result.state.lastContactDay, absoluteDay(result.state), '城外接收站回应属于真实联络');
       assert.equal(result.state.flags.includes('truth-attempt-failed'), false);
-      assert.match(log.body, /体力 -8，电力 -2/);
+      assert.match(log.body, /中继启动消耗电力 6、铜线卷 1/);
+      assert.match(log.body, /体力 -8，额外电力 -2/);
       const powerless = structuredClone(state);
       powerless.shelter.power = 0;
       const powerlessResult = performSurvivalAction(powerless, 'truth');
       const powerlessLog = powerlessResult.state.logs.findLast((entry) => entry.title === '向封锁线外发送证据');
+      assert.equal(powerlessResult.ok, false);
       assert.equal(powerlessResult.state.shelter.power, 0);
-      assert.match(powerlessLog?.body ?? '', /备用电力已经见底/);
-      assert.doesNotMatch(powerlessLog?.body ?? '', /电力 -2/);
+      assert.match(powerlessResult.message ?? '', /备用电力 6/);
+      assert.equal(powerlessLog, undefined);
       checked = true;
     }
   }
@@ -214,6 +221,7 @@ test('真相路线选择事件按难度在关键日稳定出现', () => {
     state.phase = 'survival';
     state.survivalDay = decisionDay;
     state.broadcasts = 3;
+    state.inventory = addItem(state.inventory, ITEM_MAP.radio, 1, 7 + decisionDay);
     state.currentEventId = undefined;
     state.seenEvents = [];
     assert.equal(selectEvent(state)?.id, 'final-broadcast-window');

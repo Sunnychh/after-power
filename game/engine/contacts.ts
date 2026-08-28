@@ -6,7 +6,7 @@ import { completeTimedAction, type EngineResult } from './day.ts';
 import { dailyActionBlockedReason } from './daily.ts';
 import { inventoryCount } from './inventory.ts';
 import { isNpcUnlocked } from './npcs.ts';
-import { applyEffect, createLog, unmetRequirementLabel } from './state.ts';
+import { absoluteDay, applyEffect, createLog, unmetRequirementLabel } from './state.ts';
 import { timeDisabledReason } from './time.ts';
 
 export const CONTACT_MINUTES = 45;
@@ -101,6 +101,7 @@ export function performActiveContact(state: GameState, npcId: string, optionId: 
     ...actionEffect,
     addFlags: [...(actionEffect.addFlags ?? []), contactDayFlag(state, npcId)],
   }), `主动联络 · ${npc.name}`);
+  next.lastContactDay = absoluteDay(next);
   const result = isAlliance ? contact.allianceResult : option!.result;
   next.logs.push(createLog(next, isAlliance ? `结盟 · ${npc.name}` : `主动联络 · ${npc.name}`, `${result} 通讯方式：${method.label}。${isAlliance ? `永久能力“${npc.talentName}”开始生效。` : ''}`, isAlliance ? 'good' : 'story'));
   return completeTimedAction(next, method.minutes, `survival:contact:${npcId}`);

@@ -37,6 +37,8 @@ test('三档难度提供递进资源，四件家具均为公寓自带', () => {
   assert.equal(easy.autoRations, true);
   assert.equal(normal.autoRations, false);
   assert.equal(hard.autoRations, false);
+  assert.equal(createInitialState('normal-opt-in', [], 0, 'normal', true).autoRations, true);
+  assert.equal(createInitialState('hard-opt-in', [], 0, 'hard', true).autoRations, true);
   assert.equal(Object.keys(easy.furniture).length, 4);
   assert.ok(Object.values(easy.furniture).every((unit) => unit.enabled && unit.condition === 100));
 });

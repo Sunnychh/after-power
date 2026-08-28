@@ -6,13 +6,15 @@ import { makeshiftRepairAmount, workIncome } from '../data/pressure.ts';
 import type { EventEffect, GameState, ItemDefinition, StoreId } from '../types.ts';
 import { addItem, canAddWeight, inventoryCount, inventoryWeight, removeItem } from './inventory.ts';
 import { applyFoodVariety } from './nutrition.ts';
-import { determineOutcome, finishRun, truthEndingReady } from './outcomes.ts';
+import { determineOutcome, finishRun, TRUTH_POWER_COST, truthEndingMissingRequirements, truthEndingReady } from './outcomes.ts';
 import { randomInt, seededPick } from './rng.ts';
 import { shoppingCarryCapacity, shoppingCarryRemaining, storePurchaseKey, storeStock } from './store.ts';
 import { completeTimedAction, endDay, type EngineResult } from './day.ts';
 import { dailyActionBlockedReason, recordDailyAction } from './daily.ts';
 import { nextBroadcastContact } from './npcs.ts';
 import { powerUpgradeSpec } from './power.ts';
+import { radioUseDisabledReason, radioUseMethod } from './radio.ts';
+import { STORAGE_WATER_HYDRATION } from './rations.ts';
 import { timeDisabledReason } from './time.ts';
 import {
   absoluteDay,
@@ -50,8 +52,8 @@ function effectAffordable(state: GameState, effect?: EventEffect): string | null
     if (delta < 0 && inventoryCount(state.inventory, itemId) < -delta) return `缺少 ${ITEM_MAP[itemId]?.name ?? itemId} ×${-delta}`;
   }
   for (const [key, delta] of Object.entries(effect.shelter ?? {})) {
-    if (['fuel', 'water', 'power'].includes(key) && (delta ?? 0) < 0 && state.shelter[key as keyof GameState['shelter']] < -(delta ?? 0)) {
-      const labels: Record<string, string> = { water: '储水', power: '电力', fuel: '燃料', integrity: '完整度' };
+    if (['fuel', 'water', 'rawWater', 'power'].includes(key) && (delta ?? 0) < 0 && state.shelter[key as keyof GameState['shelter']] < -(delta ?? 0)) {
+      const labels: Record<string, string> = { water: '净水', rawWater: '待净化原水', power: '电力', fuel: '燃料', integrity: '完整度' };
       return `${labels[key] ?? key}不足`;
     }
   }
@@ -62,8 +64,14 @@ export function eventOptionDisabledReason(state: GameState, optionIndex: number)
   const event = state.currentEventId ? EVENT_MAP[state.currentEventId] : undefined;
   const option = event?.options[optionIndex];
   if (!option) return '选项不存在';
-  const requirement = unmetRequirementLabel(state, option.requirements);
-  return requirement ?? effectAffordable(state, option.effects);
+  let availableState = state;
+  if (event?.requiresRadio) {
+    const method = radioUseMethod(state, 'event');
+    if (!method) return radioUseDisabledReason(state, 'event');
+    availableState = applyEffect(state, method.effect, `${event.title} · 接收预检`);
+  }
+  const requirement = unmetRequirementLabel(availableState, option.requirements);
+  return requirement ?? effectAffordable(availableState, option.effects);
 }
 
 export function resolveCurrentEvent(state: GameState, optionIndex: number): Result {
@@ -78,6 +86,13 @@ export function resolveCurrentEvent(state: GameState, optionIndex: number): Resu
   let next = structuredClone(state);
   let dangerText = '';
   let dangerWasMajor = false;
+  let radioText = '';
+  if (event.requiresRadio) {
+    const method = radioUseMethod(next, 'event');
+    if (!method) return { state, ok: false, message: radioUseDisabledReason(next, 'event') ?? '收音机无法供电。' };
+    next = applyEffect(next, method.effect, `${event.title} · 接收广播`);
+    radioText = ` 接收方式：${method.label}。`;
+  }
   if (option.danger) {
     const danger = rollDanger(next, option.danger);
     next = danger.state;
@@ -93,9 +108,10 @@ export function resolveCurrentEvent(state: GameState, optionIndex: number): Resu
     }
   }
   next = applyEffect(next, option.effects, event.title);
+  if (event.countsAsContact || option.countsAsContact) next.lastContactDay = absoluteDay(next);
   next.seenEvents = [...next.seenEvents, event.id];
   next.currentEventId = undefined;
-  next.logs = [...next.logs, createLog(next, event.title, `${option.result}${dangerText}`, dangerWasMajor ? 'bad' : 'story')];
+  next.logs = [...next.logs, createLog(next, event.title, `${option.result}${radioText}${dangerText}`, dangerWasMajor ? 'bad' : 'story')];
   return completeTimedAction(next, 30, `event:${event.id}`);
 }
 
@@ -214,7 +230,7 @@ export function performPrepAction(state: GameState, action: PrepActionId): Resul
   const effects: Record<PrepActionId, EventEffect> = {
     work: { money: prepWorkIncome(next), stats: { stamina: -18, morale: -3 } },
     reinforce: { money: -70, shelter: { integrity: 15, reinforcement: 1 }, stats: { stamina: -8 } },
-    water: { money: -90, shelter: { water: 18, storage: 5 }, stats: { stamina: -6 } },
+    water: { money: -90, shelter: { water: 18 }, stats: { stamina: -6 } },
     power: { money: -(powerUpgrade?.money ?? 0), shelter: { power: powerUpgrade?.power ?? 0, generator: 1 }, stats: { stamina: -7 } },
     drill: { shelter: { power: 2 }, intel: 1, stats: { stamina: -4 }, addFlags: ['power-audited'] },
     investigate: { intel: 1, stats: { stamina: -6, morale: -1 } },
@@ -290,12 +306,13 @@ export function repayDebt(state: GameState, mode: 'minimum' | 'all'): Result {
 
 export function performSurvivalAction(state: GameState, action: SurvivalActionId): Result {
   if (state.phase !== 'survival') return { state, ok: false, message: '当前不在灾后行动阶段。' };
+  const activeRadioMethod = radioUseMethod(state, 'listen');
   const durations: Record<SurvivalActionId, number> = {
     rest: 120,
     repair: 120,
     barricade: 120,
     plate: 150,
-    radio: state.shelter.power >= 2 || inventoryCount(state.inventory, 'batteries') > 0 ? 60 : 120,
+    radio: activeRadioMethod?.minutes ?? 60,
     generator: 30,
     purify: 90,
     'drink-storage': 20,
@@ -306,9 +323,7 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
   if (repair?.disabledReason) return { state, ok: false, message: repair.disabledReason };
   const staminaCost = action === 'repair' ? repair!.stamina : action === 'barricade' ? 9 : action === 'plate' ? 11 : action === 'truth' ? 18 : 0;
   if (staminaCost > 0 && state.stats.stamina <= staminaCost) return { state, ok: false, message: `体力不足（需要高于 ${staminaCost}）` };
-  if (action === 'radio' && state.shelter.power < 2 && inventoryCount(state.inventory, 'batteries') < 1 && state.stats.stamina <= 12) {
-    return { state, ok: false, message: '无电收听需要手摇发电，体力必须高于 12' };
-  }
+  if (action === 'radio' && !activeRadioMethod) return { state, ok: false, message: radioUseDisabledReason(state, 'listen') ?? '收音机无法供电。' };
   const started = beginTimedAction(state, duration);
   if (!started.state) return { state, ok: false, message: started.reason };
   let next = started.state;
@@ -338,17 +353,22 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     title = '钢板封固'; body = '你在门框上钻出六个固定点，把薄钢板压住锁舌和合页。它很重，但下一次撞击会先落在钢面上。';
     next = applyEffect(next, { inventory: { 'metal-sheet': -1 }, shelter: { integrity: 32 + panRepairBonus, reinforcement: 2 }, stats: { stamina: -11 } }, title);
   } else if (action === 'radio') {
-    if (inventoryCount(next.inventory, 'radio') < 1) return { state, ok: false, message: '缺少短波收音机。' };
+    const method = radioUseMethod(next, 'listen');
+    if (!method) return { state, ok: false, message: radioUseDisabledReason(next, 'listen') ?? '收音机无法供电。' };
     const newContact = nextBroadcastContact(next);
     const contactEffect = newContact && hasFlag(next, 'prep-neighbor-contact') ? { [newContact.id]: 8 } : undefined;
-    if (next.shelter.power >= 2) next = applyEffect(next, { shelter: { power: -2 }, intel: 1, stats: { morale: 3 }, relationships: contactEffect }, '收听广播');
-    else if (inventoryCount(next.inventory, 'batteries') > 0) next = applyEffect(next, { inventory: { batteries: -1 }, intel: 1, stats: { morale: 3 }, relationships: contactEffect }, '收听广播');
-    else next = applyEffect(next, { stats: { stamina: -12, morale: 1 }, intel: 1, relationships: contactEffect }, '手摇收听');
+    next = applyEffect(next, {
+      ...method.effect,
+      stats: { ...(method.effect.stats ?? {}), morale: method.source === 'hand-crank' ? 1 : 3 },
+      intel: 1,
+      relationships: contactEffect,
+    }, method.source === 'hand-crank' ? '手摇收听' : '收听广播');
     next.broadcasts += 1;
+    next.lastContactDay = absoluteDay(next);
     if (newContact) addFlag(next, `npc-unlocked:${newContact.id}`);
     if (next.broadcasts >= 3) addFlag(next, 'decoded-broadcast');
     title = newContact ? `建立联络 · ${newContact.name}` : '收听广播';
-    body = `你在噪声里记下第 ${next.broadcasts} 段有效讯息。${newContact ? `${newContact.name}报出身份与固定联络时段，幸存者档案已解锁。${hasFlag(next, 'prep-neighbor-contact') ? '对方认出了你灾前留下的社区频段，初始信任 +8。' : ''}` : '已知呼号重复确认了道路与封锁信息。'}${duration > 60 ? ' 无电时的手摇发电多花了一小时。' : ''}`;
+    body = `你在噪声里记下第 ${next.broadcasts} 段有效讯息。${newContact ? `${newContact.name}报出身份与固定联络时段，幸存者档案已解锁。${hasFlag(next, 'prep-neighbor-contact') ? '对方认出了你灾前留下的社区频段，初始信任 +8。' : ''}` : '已知呼号重复确认了道路与封锁信息。'} 接收方式：${method.label}。${duration > 60 ? ' 手摇发电多花了一小时。' : ''}`;
   } else if (action === 'generator') {
     if (next.shelter.generator < 1) return { state, ok: false, message: '灾前没有完成备用供电改造。' };
     if (inventoryCount(next.inventory, 'fuel-generator') < 1) return { state, ok: false, message: '缺少静音燃油发电机本体；请在灾前五金店购买。' };
@@ -356,36 +376,39 @@ export function performSurvivalAction(state: GameState, action: SurvivalActionId
     title = '启动燃油发电机'; body = '你把发电机推到通风的生活阳台，接入改造回路。它运转三十分钟，油量表下降一格：燃料 -3，电力 +5。';
     next = applyEffect(next, { shelter: { fuel: -3, power: 5 } }, title);
   } else if (action === 'purify') {
-    if (inventoryCount(next.inventory, 'purifier-tablet') < 1 || inventoryCount(next.inventory, 'filter-cloth') < 1 || next.shelter.water < 6) {
-      return { state, ok: false, message: '需要净水片、滤布与 6 单位储水。' };
+    if (inventoryCount(next.inventory, 'purifier-tablet') < 1 || inventoryCount(next.inventory, 'filter-cloth') < 1 || next.shelter.rawWater < 6) {
+      return { state, ok: false, message: '需要净水片、滤布与 6 单位待净化原水。' };
     }
     title = '处理雨水'; body = '水先经过滤布，再静置消毒。你分装成两只干净水瓶。';
-    next = applyEffect(next, { inventory: { 'purifier-tablet': -1, 'filter-cloth': -1, 'water-bottle': 2 }, shelter: { water: -6 } }, title);
+    next = applyEffect(next, { inventory: { 'purifier-tablet': -1, 'filter-cloth': -1, 'water-bottle': 2 }, shelter: { rawWater: -6 } }, title);
   } else if (action === 'drink-storage') {
     if (next.shelter.water < 1) return { state, ok: false, message: '储水装置已经空了。' };
-    const waterUsed = Math.min(4, next.shelter.water, Math.max(1, Math.ceil((100 - next.stats.hydration) / 7)));
-    title = '从储水装置取水'; body = `你按需要接出 ${waterUsed} 单位水，重新关紧阀门。储水 -${waterUsed}、水分 +${waterUsed * 7}；不足四单位时也不会留下无法使用的尾水。`;
-    next = applyEffect(next, { shelter: { water: -waterUsed }, stats: { hydration: waterUsed * 7, morale: waterUsed >= 3 ? 1 : 0 } }, title);
+    const waterUsed = Math.min(4, next.shelter.water, Math.max(1, Math.ceil((100 - next.stats.hydration) / STORAGE_WATER_HYDRATION)));
+    title = '从储水装置取水'; body = `你按需要接出 ${waterUsed} 单位水，重新关紧阀门。储水 -${waterUsed}、水分 +${waterUsed * STORAGE_WATER_HYDRATION}；不足四单位时也不会留下无法使用的尾水。`;
+    next = applyEffect(next, { shelter: { water: -waterUsed }, stats: { hydration: waterUsed * STORAGE_WATER_HYDRATION, morale: waterUsed >= 3 ? 1 : 0 } }, title);
   } else if (action === 'truth') {
-    if (!truthEndingReady(next)) return { state, ok: false, message: '证据、人脉或广播条件尚未满足。' };
+    if (!truthEndingReady(next)) return { state, ok: false, message: `外联条件不足：${truthEndingMissingRequirements(next).join('；') || '发送窗口尚未开放'}` };
     title = '向封锁线外发送证据';
+    next = applyEffect(next, { shelter: { power: -TRUTH_POWER_COST }, inventory: { 'copper-wire': -1 } }, '搭建外联中继');
+    const baseCostText = `中继启动消耗电力 ${TRUTH_POWER_COST}、铜线卷 1。`;
     addFlag(next, 'truth-attempted');
     const danger = rollDanger(next, 46);
     next = danger.state;
     if (danger.severity === 'major') {
       next = applyEffect(next, { stats: { health: -14, stamina: -18 }, shelter: { power: -4 } }, title);
       addFlag(next, 'truth-attempt-failed');
-      body = `中继器过载，发送在 63% 处中断。${describeDanger(danger)} 你仍能退回避难所，普通撤离没有被关闭。`;
+      body = `${baseCostText}中继器过载，发送在 63% 处中断。${describeDanger(danger)} 你仍能退回避难所，普通撤离没有被关闭。`;
     } else {
       if (danger.severity === 'minor') {
         const powerBefore = next.shelter.power;
         next = applyEffect(next, { stats: { stamina: -8 }, shelter: { power: -2 } }, '中继器过热');
         const powerSpent = powerBefore - next.shelter.power;
-        body = `校验完成。三个城外接收站先后回应。${describeDanger(danger)} 中继器一度过热，体力 -8${powerSpent > 0 ? `，电力 -${powerSpent}` : '；备用电力已经见底'}，但传输没有中断。这份数据已经不只存在于城里。`;
+        body = `${baseCostText}校验完成。三个城外接收站先后回应。${describeDanger(danger)} 中继器一度过热，体力 -8${powerSpent > 0 ? `，额外电力 -${powerSpent}` : '；备用电力已经见底'}，但传输没有中断。这份数据已经不只存在于城里。`;
       } else {
-        body = `校验完成。三个城外接收站先后回应。${describeDanger(danger)} 这份数据已经不只存在于城里。`;
+        body = `${baseCostText}校验完成。三个城外接收站先后回应。${describeDanger(danger)} 这份数据已经不只存在于城里。`;
       }
       addFlag(next, 'truth-transmitted');
+      next.lastContactDay = absoluteDay(next);
     }
   }
 

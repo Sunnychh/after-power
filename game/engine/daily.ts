@@ -92,7 +92,7 @@ export function dailyRewardDescription(state: Pick<GameState, 'difficulty'>, rew
   const easy = state.difficulty === 'easy';
   if (rewardId === 'quiet-rest') return easy ? '体力 +12，精神 +6。' : state.difficulty === 'hard' ? '体力 +6，精神 +2。' : '体力 +8，精神 +4。';
   if (rewardId === 'water-cache') return easy ? '瓶装水 ×1，储水 +2。' : '瓶装水 ×1。';
-  if (rewardId === 'food-cache') return easy ? '豆类罐头 ×1、压缩饼干 ×1。' : state.difficulty === 'hard' ? '压缩饼干 ×1。' : '豆类罐头 ×1。';
+  if (rewardId === 'food-cache') return easy ? '豆类罐头 ×1、压缩饼干 ×1。' : '压缩饼干 ×1。';
   if (rewardId === 'repair-kit') return easy ? '完整度 +8，强力胶带 ×1。' : '强力胶带 ×1。';
   if (rewardId === 'charge-pack') return easy ? '备用电力 +4，电池组 ×1。' : '备用电力 +3。';
   return easy ? '健康 +12，并处理一项持续伤病。' : state.difficulty === 'hard' ? '健康 +7，并处理一项持续伤病。' : '健康 +9，并处理一项持续伤病。';
@@ -101,14 +101,15 @@ export function dailyRewardDescription(state: Pick<GameState, 'difficulty'>, rew
 export function dailyRewardCost(state: Pick<GameState, 'difficulty'>, rewardId: DailyRewardId): number {
   const base = DAILY_REWARD_MAP[rewardId].cost;
   if (state.difficulty === 'easy' || rewardId === 'quiet-rest') return base;
-  return base + 1;
+  if (rewardId === 'water-cache' || rewardId === 'food-cache') return state.difficulty === 'normal' ? base + 4 : base + 2;
+  return base + 2;
 }
 
 function dailyRewardEffect(state: Pick<GameState, 'difficulty'>, rewardId: DailyRewardId): EventEffect {
   const easy = state.difficulty === 'easy';
   if (rewardId === 'quiet-rest') return { stats: easy ? { stamina: 12, morale: 6 } : state.difficulty === 'hard' ? { stamina: 6, morale: 2 } : { stamina: 8, morale: 4 } };
   if (rewardId === 'water-cache') return easy ? { inventory: { 'water-bottle': 1 }, shelter: { water: 2 } } : { inventory: { 'water-bottle': 1 } };
-  if (rewardId === 'food-cache') return easy ? { inventory: { crackers: 1, 'canned-beans': 1 } } : state.difficulty === 'hard' ? { inventory: { crackers: 1 } } : { inventory: { 'canned-beans': 1 } };
+  if (rewardId === 'food-cache') return easy ? { inventory: { crackers: 1, 'canned-beans': 1 } } : { inventory: { crackers: 1 } };
   if (rewardId === 'repair-kit') return easy ? { inventory: { 'duct-tape': 1 }, shelter: { integrity: 8 } } : { inventory: { 'duct-tape': 1 } };
   if (rewardId === 'charge-pack') return easy ? { inventory: { batteries: 1 }, shelter: { power: 4 } } : { shelter: { power: 3 } };
   return { stats: { health: easy ? 12 : state.difficulty === 'hard' ? 7 : 9 } };

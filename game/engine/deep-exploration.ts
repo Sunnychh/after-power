@@ -3,7 +3,7 @@ import { ITEM_MAP } from '../data/items.ts';
 import type { ExplorationSkillId, GameState } from '../types.ts';
 import { dailyActionBlockedReason } from './daily.ts';
 import { completeTimedAction, type EngineResult } from './day.ts';
-import { addItem, canAddWeight, inventoryCount, removeItem } from './inventory.ts';
+import { addItem, canAddWeight, inventoryCount, inventoryWeight, removeItem } from './inventory.ts';
 import { normalizeSeed, randomInt } from './rng.ts';
 import { absoluteDay, addFlag, applyEffect, createLog, describeDanger, rollDanger } from './state.ts';
 import { formatDuration, timeDisabledReason } from './time.ts';
@@ -40,6 +40,20 @@ export function hardDeepLootRetention(survivalDay: number): number {
   if (day >= 9) return 0.35;
   if (day >= 5) return 0.5;
   return 0.65;
+}
+
+export function repeatDeepLootRetention(difficulty: GameState['difficulty'], visits: number): number {
+  if (difficulty === 'easy' || visits <= 0) return 1;
+  if (difficulty === 'normal') {
+    if (visits >= 4) return 0.25;
+    if (visits === 3) return 0.4;
+    if (visits === 2) return 0.55;
+    return 0.75;
+  }
+  if (visits >= 4) return 0.35;
+  if (visits === 3) return 0.5;
+  if (visits === 2) return 0.65;
+  return 0.82;
 }
 
 function reserveReason(state: GameState, minutes: number): string | null {
@@ -79,8 +93,31 @@ export function deepOptionDisabledReason(state: GameState, targetId: string, opt
   for (const [itemId, quantity] of Object.entries(option.consumes ?? {})) {
     if (inventoryCount(state.inventory, itemId) < quantity) return `缺少 ${ITEM_MAP[itemId]?.name ?? itemId} ×${quantity}`;
   }
+  const storyLoot = Object.entries(option.loot ?? {}).filter(([itemId]) => ITEM_MAP[itemId]?.story && inventoryCount(state.inventory, itemId) === 0);
+  if (storyLoot.length) {
+    const freedWeight = Object.entries(option.consumes ?? {}).reduce((sum, [itemId, quantity]) => sum + (ITEM_MAP[itemId]?.weight ?? 0) * quantity, 0);
+    const storyWeight = storyLoot.reduce((sum, [itemId, quantity]) => sum + (ITEM_MAP[itemId]?.weight ?? 0) * quantity, 0);
+    if (inventoryWeight(state.inventory, ITEM_MAP) - freedWeight + storyWeight > state.carryCapacity + 0.0001) {
+      return `需要为剧情物品预留 ${storyWeight.toFixed(2)}kg；先回避难所整理物资，这个目标不会消失`;
+    }
+  }
   if (state.stats.stamina <= option.stamina) return `体力不足（需要高于 ${option.stamina}）`;
   return reserveReason(state, option.minutes);
+}
+
+export function deepApproachRisk(state: GameState, locationId: string): number {
+  const location = DEEP_LOCATIONS[locationId];
+  if (!location) return 85;
+  const hasRaincoat = inventoryCount(state.inventory, 'raincoat') > 0;
+  const hasFlashlight = inventoryCount(state.inventory, 'flashlight') > 0;
+  const weatherPenalty = state.weather === '酸雨'
+    ? hasRaincoat ? 2 : 8
+    : state.weather === '暴雨'
+      ? hasRaincoat ? 2 : 6
+      : state.weather === '大雾'
+        ? hasFlashlight ? 1 : 4
+        : 0;
+  return location.approachRisk + Math.min(12, Math.max(0, state.survivalDay - 1)) + weatherPenalty;
 }
 
 export function beginDeepExplore(state: GameState, locationId: string): EngineResult {
@@ -94,8 +131,7 @@ export function beginDeepExplore(state: GameState, locationId: string): EngineRe
   if (reason) return { state, ok: false, message: reason };
   let next = structuredClone(state);
   next.feedback = [];
-  const weatherPenalty = next.weather === '酸雨' ? 8 : next.weather === '暴雨' ? 6 : next.weather === '大雾' ? 4 : 0;
-  const baseRisk = location.approachRisk + Math.min(12, Math.max(0, next.survivalDay - 1)) + weatherPenalty;
+  const baseRisk = deepApproachRisk(next, locationId);
   const danger = rollDanger(next, baseRisk);
   next = danger.state;
   if (danger.severity === 'minor') next = applyEffect(next, { stats: { stamina: -5, health: -2 } }, `前往${location.name}`);
@@ -126,12 +162,12 @@ export function moveDeepExplore(state: GameState, sceneId: string): EngineResult
 }
 
 export function adjustedDeepLoot(
-  state: Pick<GameState, 'difficulty' | 'seed'> & Partial<Pick<GameState, 'survivalDay'>>,
+  state: Pick<GameState, 'difficulty' | 'seed'> & Partial<Pick<GameState, 'survivalDay' | 'visited'>>,
   loot: Record<string, number> | undefined,
   targetKey: string,
 ): Record<string, number> {
   const source = loot ?? {};
-  if (state.difficulty !== 'hard') return { ...source };
+  if (state.difficulty === 'easy') return { ...source };
 
   const result: Record<string, number> = {};
   const regularUnits: string[] = [];
@@ -142,12 +178,15 @@ export function adjustedDeepLoot(
   if (!regularUnits.length) return result;
 
   const day = Math.max(1, state.survivalDay ?? 1);
-  const retention = hardDeepLootRetention(day);
+  const locationId = targetKey.split(':')[0];
+  const visits = Math.max(0, state.visited?.[locationId] ?? 0);
+  const dayRetention = state.difficulty === 'hard' ? hardDeepLootRetention(day) : 1;
+  const retention = dayRetention * repeatDeepLootRetention(state.difficulty, visits);
   let keepCount = Math.round(regularUnits.length * retention);
   if (regularUnits.length === 1) {
-    keepCount = normalizeSeed(`${state.seed}:${day}:${targetKey}:hard-loot-single`) % 100 < retention * 100 ? 1 : 0;
+    keepCount = normalizeSeed(`${state.seed}:${day}:${visits}:${targetKey}:${state.difficulty}-loot-single`) % 100 < retention * 100 ? 1 : 0;
   }
-  let seed = normalizeSeed(`${state.seed}:${day}:${targetKey}:hard-loot-order`);
+  let seed = normalizeSeed(`${state.seed}:${day}:${visits}:${targetKey}:${state.difficulty}-loot-order`);
   const shuffled = [...regularUnits];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
     const roll = randomInt(seed, 0, index);
@@ -227,7 +266,12 @@ export function resolveDeepTarget(state: GameState, targetId: string, optionId: 
       ? '能用的货格已经被先来者取空。'
       : '背包已满，没能带走物资。';
   const leftText = loot.left.length ? ` 负重不足，留下：${loot.left.join('、')}。` : '';
-  const scarceText = loot.scarce.length ? ` 困难模式第 ${next.survivalDay} 天，这批刷新物资已有部分被先来者取空：${loot.scarce.join('、')}。` : '';
+  const visitCount = next.visited[location.id] ?? 0;
+  const scarceText = loot.scarce.length
+    ? next.difficulty === 'hard'
+      ? ` 困难模式第 ${next.survivalDay} 天，加上此前 ${visitCount} 次搜刮，这批刷新物资已有部分被先来者取空：${loot.scarce.join('、')}。`
+      : ` 你已多次搜索这个地点，普通货格只补回了一部分：${loot.scarce.join('、')}。`
+    : '';
   next.logs.push(createLog(next, `${scene.name} · ${target.name}`, `${option.result}${dangerText} ${lootText}${leftText}${scarceText} ${skillText}`, tone));
   return completeTimedAction(next, option.minutes, 'survival:deep-action');
 }

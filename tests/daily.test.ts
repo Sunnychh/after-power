@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ITEM_MAP } from '../game/data/items.ts';
 import { endDay, performPrepAction } from '../game/engine/actions.ts';
-import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyRewardDescription, ensureAssignedDailyWish, recordDailyAction } from '../game/engine/daily.ts';
+import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyRewardCost, dailyRewardDescription, ensureAssignedDailyWish, recordDailyAction } from '../game/engine/daily.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { createInitialState } from '../game/engine/state.ts';
 import { PREP_DAY_START } from '../game/engine/time.ts';
@@ -113,8 +113,8 @@ test('标准与艰难的主愿望每天只得一点且可保留，物资奖励�
   const banked = bankDailyPoints(settled);
   assert.equal(banked.ok, true);
   assert.equal(banked.state.dailyPoints, 1);
-  assert.match(dailyRewardDescription(banked.state, 'food-cache'), /豆类罐头 ×1/);
-  assert.doesNotMatch(dailyRewardDescription(banked.state, 'food-cache'), /饼干/);
+  assert.equal(dailyRewardCost(banked.state, 'food-cache'), 6);
+  assert.match(dailyRewardDescription(banked.state, 'food-cache'), /压缩饼干 ×1/);
 });
 
 test('简易难度保留双倍愿望点与丰厚奖励，仍适合轻松游玩', () => {

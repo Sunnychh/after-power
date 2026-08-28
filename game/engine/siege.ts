@@ -14,6 +14,86 @@ export function nextSiegeWave(state: GameState): SiegeWaveDefinition | undefined
   return HARD_SIEGE_WAVES.find((wave) => wave.day >= state.survivalDay && !state.flags.includes(`siege-wave:${wave.day}`));
 }
 
+export interface NightPowerBudget {
+  weatherSpend: number;
+  policySpend: number;
+  trapSpend: number;
+  trapAttack: number;
+  alarmSpend: number;
+  totalSpend: number;
+  remaining: number;
+}
+
+export interface FutureNightPowerForecast {
+  budget: NightPowerBudget;
+  powerBeforeTarget: number;
+  interveningSpend: number;
+}
+
+/**
+ * Mirrors the engine's allocation order. Fixed weather loss, an armed trap and
+ * the late-wave alarm are protected before optional comfort circuits.
+ * Future-day previews omit weather because that day's weather is not known yet.
+ */
+export function nightPowerBudget(state: GameState, day = state.survivalDay): NightPowerBudget {
+  const wave = siegeWaveForDay(state, day);
+  const weatherSpend = day === state.survivalDay && state.weather === '暴雨' && state.shelter.power >= 1 ? 1 : 0;
+  let availableForCriticalLoads = Math.max(0, state.shelter.power - weatherSpend);
+  const trap = state.powerTrap.armed && wave ? powerTrapDefinition(state.powerTrap.level) : undefined;
+  const trapSpend = trap && availableForCriticalLoads >= trap.powerCost ? trap.powerCost : 0;
+  availableForCriticalLoads -= trapSpend;
+  const alarmSpend = wave && wave.day >= 8 && availableForCriticalLoads >= 1 ? 1 : 0;
+  const availableForPolicyStart = Math.max(0, availableForCriticalLoads - alarmSpend);
+  let availableForPolicy = availableForPolicyStart;
+  let policySpend = 0;
+  const hasPerishables = Object.values(state.inventory).some((batches) => batches.some((batch) => batch.expiresOn !== undefined));
+  if (state.powerPolicy === 'balanced') {
+    if (state.furniture.fridge.enabled && hasPerishables && availableForPolicy >= 1) {
+      policySpend += 1;
+      availableForPolicy -= 1;
+    }
+    if (availableForPolicy >= 1) policySpend += 1;
+  } else if (state.powerPolicy === 'cold') {
+    if (state.furniture.fridge.enabled && availableForPolicy >= 2) policySpend = 2;
+  } else if (state.powerPolicy === 'light') {
+    policySpend = Math.min(2, availableForPolicy);
+  }
+  return {
+    weatherSpend,
+    policySpend,
+    trapSpend,
+    trapAttack: trapSpend ? trap?.attack ?? 0 : 0,
+    alarmSpend,
+    totalSpend: weatherSpend + policySpend + trapSpend + alarmSpend,
+    remaining: Math.max(0, availableForPolicyStart - policySpend),
+  };
+}
+
+/**
+ * Projects a later night's budget after deducting every known intervening
+ * policy/wave load. Only the current night's weather is known; later weather is
+ * deliberately omitted, while the current policy and inventory are held fixed.
+ */
+export function forecastNightPowerBudget(state: GameState, targetDay: number): FutureNightPowerForecast {
+  const simulated = structuredClone(state);
+  const currentDay = state.survivalDay;
+  let interveningSpend = 0;
+  for (let day = currentDay; day < targetDay; day += 1) {
+    simulated.survivalDay = day;
+    if (day !== currentDay) simulated.weather = '晴冷';
+    const budget = nightPowerBudget(simulated, day);
+    interveningSpend += budget.totalSpend;
+    simulated.shelter.power = Math.max(0, simulated.shelter.power - budget.totalSpend);
+  }
+  simulated.survivalDay = targetDay;
+  if (targetDay !== currentDay) simulated.weather = '晴冷';
+  return {
+    powerBeforeTarget: simulated.shelter.power,
+    interveningSpend,
+    budget: nightPowerBudget(simulated, targetDay),
+  };
+}
+
 export function siegeMitigation(state: GameState): number {
   return state.shelter.reinforcement * 2
     + (state.flags.includes('horde-prepared') ? 3 : 0)

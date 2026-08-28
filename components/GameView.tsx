@@ -37,17 +37,19 @@ import { inventoryCount } from '../game/engine/inventory.ts';
 import { isNpcUnlocked } from '../game/engine/npcs.ts';
 import { debtRiskBonus } from '../game/engine/loan.ts';
 import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyRewardCost, dailyRewardDescription, dailyWishRewardPoints } from '../game/engine/daily.ts';
-import { chooseEvacuation, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
+import { chooseEvacuation, TRUTH_POWER_COST, truthEndingMissingRequirements, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
 import { dangerRisk } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
 import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
-import { beginDeepExplore, deepOptionDisabledReason, deepStartDisabledReason, deepTargetRefreshMode, EXPLORATION_SKILL_LABELS, hardDeepLootRetention, isDeepTargetResolved, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
+import { beginDeepExplore, deepApproachRisk, deepOptionDisabledReason, deepStartDisabledReason, deepTargetRefreshMode, EXPLORATION_SKILL_LABELS, hardDeepLootRetention, isDeepTargetResolved, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
-import { nextSiegeWave, siegeAttack, siegeDamage, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
+import { forecastNightPowerBudget, nextSiegeWave, nightPowerBudget, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
 import { nextPowerTrap, powerTrapUpgradeDisabledReason, setPowerTrapArmed, upgradePowerTrap } from '../game/engine/power-traps.ts';
 import { dailyTradeOffers, executeTrade, tradeItemsText, tradeOfferDisabledReason, TRADE_MINUTES } from '../game/engine/trades.ts';
 import { activeContactDisabledReason, contactCostText, contactOptions, contactsRemainingToday, npcAllianceFlag, performActiveContact } from '../game/engine/contacts.ts';
 import { entertainmentDisabledReason, performEntertainment } from '../game/engine/entertainment.ts';
+import { survivalNeedAlert } from '../game/engine/needs.ts';
+import { radioUseDisabledReason, radioUseMethod } from '../game/engine/radio.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
@@ -58,10 +60,11 @@ type Mode = 'main' | 'shops' | 'explore' | 'craft' | 'entertainment' | 'contact'
 type EngineResult = { state: GameState; ok: boolean; message?: string };
 
 const TUTORIAL = [
-  { title: '状态就在右下', body: '健康、水分、饱腹、精神、体力和避难所状态固定在右下。低于 40 会影响危险判定。' },
+  { title: '状态就在右下', body: '健康、水分、饱腹、精神、体力和避难所状态固定在右下。饱腹或水分低于 35 会提高危险率，低于 40 还会在夜间额外损失精神；危险前会出现醒目提示。' },
   { title: '钟点决定一天', body: '每个行动会推进游戏内时钟，到达日终自动进入夜间结算。封锁后每经过两小时还会产生少量食水消耗；休息能恢复体力，但不再是免费循环。' },
   { title: '每件物资都标保存期', body: '易腐物会按入库批次显示“剩余 N 天”或“今天到期”，其他物资会标为长期保存；冰箱会逐批延长仍有效的保质期。' },
   { title: '精神每天都会下降', body: '封锁后的夜间压力每天都会降低精神，艰难后期下降更多。可在“家具、烹饪与制作 → 娱乐与放松”中写日记、阅读、摆纸牌或听音乐；同一活动每天只能获得一次收益。' },
+  { title: '厌倦不会被交替重置', body: '每种食物都有长期熟悉度，轮换两三种口粮仍会逐渐单调；真正扩大菜单、吃新鲜食物或做出新料理只能有限缓解。熟悉度与总厌倦会在夜里缓慢下降。' },
   { title: '每天一个明确愿望', body: '系统每天直接给出一件当天能完成的事。达成后夜间领取奖励；没有完成也不会扣除任何状态或点数。' },
   { title: '每日委托也能获得点数', body: '右侧“今日”页会发布一至两项额外委托。完成时愿望点立即入账且只发一次，不必等到夜间。' },
   { title: '线索与配方都归档', body: '打开左侧物资抽屉的“档案”页，可以查看已经确认的线索、尚未发现的来源提示，以及成功做出过的料理配方。' },
@@ -104,6 +107,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const expeditionScene = state.expedition ? deepScene(state.expedition.locationId, state.expedition.sceneId) : undefined;
   const selectedTarget = expeditionScene?.targets.find((target) => target.id === selectedTargetId);
   const pressure = survivalPressure(state.difficulty, Math.max(1, state.survivalDay));
+  const needsAlert = survivalNeedAlert(state);
 
   const run = (result: EngineResult) => {
     const ok = onResult(result);
@@ -302,8 +306,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
     if (mode === 'explore') {
       const locationChoices: ActionChoice[] = LOCATIONS.map((location) => {
         const deepLocation = DEEP_LOCATIONS[location.id];
-        const weatherPenalty = state.weather === '酸雨' ? 8 : state.weather === '暴雨' ? 6 : state.weather === '大雾' ? 4 : 0;
-        const approachRisk = deepLocation.approachRisk + Math.min(12, Math.max(0, state.survivalDay - 1)) + weatherPenalty;
+        const approachRisk = deepApproachRisk(state, location.id);
         return {
           id: location.id,
           label: `深入探索 · ${location.name}`,
@@ -334,7 +337,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         { id: 'drink-storage', label: '从储水装置按量取水', hint: `20分钟 · 按需使用 1–4 单位 · 当前储水 ${state.shelter.water}`, disabledReason: timedReason(state, 20) ?? (state.shelter.water < 1 ? '储水装置已空' : null), onSelect: () => run(performSurvivalAction(state, 'drink-storage')) },
         { id: 'barricade', label: '木板加固', hint: '2小时 · 木板 -1 · 完整度 +20', disabledReason: timedReason(state, 120) ?? (inventoryCount(state.inventory, 'wood-board') < 1 ? '缺少木板 ×1' : null), onSelect: () => run(performSurvivalAction(state, 'barricade')) },
         { id: 'plate', label: '钢板封固', hint: '2小时30分 · 薄钢板 -1 · 完整度 +32 · 加固 +2', disabledReason: timedReason(state, 150) ?? (inventoryCount(state.inventory, 'metal-sheet') < 1 ? '缺少薄钢板 ×1' : inventoryCount(state.inventory, 'toolkit') < 1 ? '需要家用工具箱' : null), onSelect: () => run(performSurvivalAction(state, 'plate')) },
-        { id: 'purify', label: '处理雨水', hint: '1小时30分 · 净水片、滤布、储水 6 → 瓶装水 2', disabledReason: timedReason(state, 90) ?? (inventoryCount(state.inventory, 'purifier-tablet') < 1 ? '缺少净水片' : inventoryCount(state.inventory, 'filter-cloth') < 1 ? '缺少活性炭滤布' : state.shelter.water < 6 ? '储水不足 6' : null), onSelect: () => run(performSurvivalAction(state, 'purify')) },
+        { id: 'purify', label: '净化收集的雨水', hint: `1小时30分 · 净水片、滤布、原水 6 → 瓶装水 2 · 当前原水 ${state.shelter.rawWater}`, disabledReason: timedReason(state, 90) ?? (inventoryCount(state.inventory, 'purifier-tablet') < 1 ? '缺少净水片' : inventoryCount(state.inventory, 'filter-cloth') < 1 ? '缺少活性炭滤布' : state.shelter.rawWater < 6 ? '待净化原水不足 6' : null), onSelect: () => run(performSurvivalAction(state, 'purify')) },
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
       ];
     }
@@ -407,10 +410,11 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       return [
         { id: 'generator', label: '启动燃油发电机', hint: '30分钟 · 需要发电机本体与供电改造 · 燃料 -3 · 电力 +5', disabledReason: timedReason(state, 30) ?? (state.shelter.generator < 1 ? '灾前未完成一级供电改造' : inventoryCount(state.inventory, 'fuel-generator') < 1 ? '缺少发电机本体（灾前五金店购买）' : state.shelter.fuel < 3 ? '燃料不足 3' : null), onSelect: () => run(performSurvivalAction(state, 'generator')) },
         ...POWER_POLICIES.map((policy) => {
-          const policyNights = policy.expectedPower === 0 ? null : Math.floor(state.shelter.power / policy.expectedPower);
+          const policyBudget = nightPowerBudget({ ...state, powerPolicy: policy.id });
+          const policyNights = policyBudget.totalSpend === 0 ? null : Math.floor(state.shelter.power / policyBudget.totalSpend);
           return {
             id: `policy-${policy.id}`, label: `${state.powerPolicy === policy.id ? '当前 · ' : ''}${policy.name}`,
-            hint: `预计每晚 ${policy.expectedPower} 电 · ${policy.description}${policyNights === null ? ' 当前策略不消耗电。' : ` 当前电量约可维持 ${policyNights} 夜。`}`,
+            hint: `今夜预计 ${policyBudget.totalSpend} 电（策略 ${policyBudget.policySpend}${policyBudget.weatherSpend ? `、暴雨 ${policyBudget.weatherSpend}` : ''}${policyBudget.trapSpend ? `、陷阱 ${policyBudget.trapSpend}` : ''}${policyBudget.alarmSpend ? `、警戒 ${policyBudget.alarmSpend}` : ''}）· ${policy.description}${policyNights === null ? ' 当前策略不消耗电。' : ` 当前电量约可维持 ${policyNights} 夜。`}`,
             disabledReason: state.powerPolicy === policy.id ? '正在采用' : undefined,
             onSelect: () => run(setPowerPolicy(state, policy.id)),
           };
@@ -431,18 +435,19 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         { id: 'back', label: '返回避难所行动', hint: '不耗时', onSelect: () => setMode('main') },
       ];
     }
-    const radioMinutes = state.shelter.power >= 2 || inventoryCount(state.inventory, 'batteries') > 0 ? 60 : 120;
+    const radioMethod = radioUseMethod(state, 'listen');
+    const radioMinutes = radioMethod?.minutes ?? 60;
     const truthDay = difficultyConfig.truthDecisionDay;
     const repair = repairPreview(state);
     return [
       { id: 'rest', label: '休息两小时', hint: '2小时 · 体力 +32 · 精神 +4', disabledReason: timedReason(state, 120), onSelect: () => run(performSurvivalAction(state, 'rest')) },
       { id: 'repair', label: '修缮避难所', hint: repair.material ? `2小时 · 胶带 -1 · 完整度 +${repair.amount} · 体力 -${repair.stamina}` : `2小时 · 今日一次临时支撑 · 完整度 +${repair.amount} · 体力 -${repair.stamina}`, disabledReason: timedReason(state, 120) ?? repair.disabledReason, onSelect: () => run(performSurvivalAction(state, 'repair')) },
       { id: 'craft', label: '家具、烹饪与制作', hint: '使用自带厨房家具，或进行净水和加固', disabledReason: minutesRemaining(state) < 20 ? '今天已没有制作时间' : null, onSelect: () => setMode('craft') },
-      { id: 'radio', label: '收听广播', hint: `${formatDuration(radioMinutes)} · 优先耗电 2 或电池 1`, disabledReason: timedReason(state, radioMinutes) ?? (inventoryCount(state.inventory, 'radio') < 1 ? '缺少短波收音机' : null), onSelect: () => run(performSurvivalAction(state, 'radio')) },
+      { id: 'radio', label: '收听广播', hint: `${formatDuration(radioMinutes)} · ${radioMethod?.label ?? '当前无法供电'}`, disabledReason: radioUseDisabledReason(state, 'listen') ?? timedReason(state, radioMinutes), onSelect: () => run(performSurvivalAction(state, 'radio')) },
       { id: 'contact', label: state.debt ? '联络、交易与偿还债务' : '主动联络与幸存者交易', hint: '主动选择已解锁人物，培养信任、提供物资或邀请结盟', onSelect: () => { setSelectedContactId(null); setMode('contact'); } },
       { id: 'explore', label: '外出探索', hint: `选择 6 个细化地点 · ${state.difficulty === 'hard' ? '普通战利品约为标准的 65%，剧情物品不减' : '危险与收益受状态和路线影响'}`, disabledReason: timedReason(state, 120), onSelect: () => setMode('explore') },
       { id: 'power', label: '供电与夜间负载', hint: `当前 ${state.shelter.power} 电 · 调整保鲜、照明或节电策略`, onSelect: () => setMode('power') },
-      ...(state.survivalDay >= truthDay && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') ? [{ id: 'truth', label: '搭建外联中继', hint: '3小时 · 每轮只有一次发送窗口；失败后仍可普通撤离', disabledReason: truthEndingReady(state) ? timedReason(state, 180) : `需要证据 3（${truthEvidenceCount(state)}）、盟友 2（${trustedNpcCount(state)}）与已解码广播`, danger: `${dangerRisk(state, 46).risk}% 受险`, onSelect: () => run(performSurvivalAction(state, 'truth')) }] : []),
+      ...(state.survivalDay >= truthDay && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') ? [{ id: 'truth', label: '搭建外联中继', hint: `3小时 · 电力 -${TRUTH_POWER_COST} · 铜线卷 -1 · 每轮只有一次发送窗口；失败后仍可普通撤离`, disabledReason: truthEndingReady(state) ? timedReason(state, 180) : `还需：${truthEndingMissingRequirements(state).join('；')}`, danger: `${dangerRisk(state, 46).risk}% 受险`, onSelect: () => run(performSurvivalAction(state, 'truth')) }] : []),
       { id: 'end', label: '就寝并进行夜间结算', hint: `现在 ${formatClock(state.clockMinutes)} · 尚余 ${formatDuration(minutesRemaining(state))}`, onSelect: () => run(endDay(state)) },
     ];
   })();
@@ -505,6 +510,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         <InventoryPanel state={state} open={drawer} onClose={() => setDrawer(false)} onUse={(itemId) => run(consumeGameItem(state, itemId))} />
 
         <section className="narrative-column" aria-label="当日叙事与历史日志">
+          {needsAlert && (
+            <aside className={`needs-alert ${needsAlert.severity}`} role="alert">
+              <div><span>{needsAlert.severity === 'critical' ? 'CRITICAL NEEDS' : 'NIGHT RATION CHECK'}</span><strong>{needsAlert.title}</strong></div>
+              <p>{needsAlert.detail}</p>
+              <button type="button" onClick={() => setDrawer(true)}>打开物资</button>
+            </aside>
+          )}
           {state.feedback.length > 0 && (
             <div className="feedback-strip" aria-live="polite">
               {state.feedback.slice(-6).map((item) => <span key={item.id} className={item.label === '时间' ? 'time' : item.delta < 0 || (item.label === '饮食厌倦' && item.delta > 0) ? 'negative' : 'positive'}>{item.label} {item.label === '时间' ? `+${formatDuration(item.delta)}` : `${item.delta > 0 ? '+' : ''}${item.delta}`}<small>{item.reason}</small></span>)}
@@ -554,6 +566,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <span className="story-time">{event.npc ? `${NPCS.find((npc) => npc.id === event.npc)?.name ?? '幸存者'} / ` : ''}即时事件</span>
               <h2>{event.title}</h2>
               <p>{event.text}</p>
+              {event.requiresRadio && <span className="chain-tag">收音机接收成本 · {radioUseMethod(state, 'event')?.label ?? '当前无法供电'}</span>}
               {event.chain && <span className="chain-tag">跨天线索 · {event.chain.id.toUpperCase()} / {event.chain.step}</span>}
             </article>
           ) : (
@@ -592,7 +605,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             {state.phase === 'survival' && state.flags.includes('truth-window-open') && !state.flags.includes('truth-attempted') && (
               <dl className="objective-progress">
                 <div><dt>证据</dt><dd>{truthEvidenceCount(state)} / 3</dd></div>
-                <div><dt>盟友</dt><dd>{trustedNpcCount(state)} / 2</dd></div>
+                <div><dt>可信联系人</dt><dd>{trustedNpcCount(state)} / 2</dd></div>
                 <div><dt>有效广播</dt><dd>{state.broadcasts}</dd></div>
                 <div><dt>情报</dt><dd>{state.intel}</dd></div>
               </dl>
@@ -620,16 +633,22 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           {state.phase === 'survival' && state.difficulty === 'hard' && nextSiegeWave(state) && (() => {
             const wave = nextSiegeWave(state)!;
             const mitigation = siegeMitigation(state);
+            const forecast = forecastNightPowerBudget(state, wave.day);
+            const budget = forecast.budget;
+            const projectedDamage = Math.max(0, wave.pressure - budget.trapAttack - mitigation);
             return (
               <section className="siege-panel brief-today">
                 <span className="section-kicker">HARD MODE SIEGE</span>
                 <h2>{wave.day === state.survivalDay ? `今夜 · ${wave.name}` : `下一波 · 第 ${wave.day} 夜`}</h2>
                 <p>{wave.warning}{wave.day >= 8 ? '第 8 夜起围攻每天发生且持续增强；受压加固会磨损，必须安排材料和维修时间。' : '波次固定发生，方便提前安排材料和维修时间。'}</p>
+                {wave.day !== state.survivalDay && <p className="forecast-note">已先扣除波次前 {forecast.interveningSpend} 点已知供电负载；假设当前策略与易腐库存不变，未来天气尚未计入。</p>}
                 <dl className="daily-progress">
+                  {wave.day !== state.survivalDay && <div><dt>波前电量</dt><dd>{state.shelter.power} → {forecast.powerBeforeTarget}</dd></div>}
                   <div><dt>冲击</dt><dd>{wave.pressure}</dd></div>
-                  <div><dt>主动攻击</dt><dd>{siegeAttack(state)}</dd></div>
-                  <div><dt>加固吸收</dt><dd>{Math.min(Math.max(0, wave.pressure - siegeAttack(state)), mitigation)}</dd></div>
-                  <div><dt>预计损伤</dt><dd>{siegeDamage(state, wave)}</dd></div>
+                  <div><dt>主动攻击</dt><dd>{budget.trapAttack}{state.powerTrap.armed && !budget.trapAttack ? '（电力不足）' : ''}</dd></div>
+                  <div><dt>加固吸收</dt><dd>{Math.min(Math.max(0, wave.pressure - budget.trapAttack), mitigation)}</dd></div>
+                  <div><dt>预计损伤</dt><dd>{projectedDamage}</dd></div>
+                  <div><dt>整夜耗电</dt><dd>−{budget.totalSpend}，余 {budget.remaining}</dd></div>
                   {wave.reinforcementWear > 0 && <div><dt>加固磨损</dt><dd>−{Math.min(state.shelter.reinforcement, wave.reinforcementWear)}</dd></div>}
                 </dl>
               </section>
@@ -670,7 +689,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
             <section className="isolation-panel brief-today">
               <span className="section-kicker">ISOLATION WARNING</span>
               <h2>连续孤立 {state.isolationNights} / 3 夜</h2>
-              <p>精神低于危险线且没有任何有效广播联络。收听广播建立联系人，或先通过休息与物资把精神恢复到 20 以上，即可中断累计。</p>
+              <p>精神低于危险线且连续两天没有真实交流。收听广播、主动联络、交易或处理具名人物事件，或先把精神恢复到 20 以上，即可中断累计；很久以前的一次广播不会永久免疫孤立。</p>
             </section>
           )}
           <section className="brief-people">

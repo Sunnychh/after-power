@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chooseEvacuation, determineOutcome, truthEndingReady } from '../game/engine/outcomes.ts';
-import { createInitialState } from '../game/engine/state.ts';
+import { absoluteDay, createInitialState } from '../game/engine/state.ts';
 import { endDay } from '../game/engine/actions.ts';
 import { activateDay } from './helpers.ts';
+import { ITEM_MAP } from '../game/data/items.ts';
+import { addItem } from '../game/engine/inventory.ts';
 
 function evacuationState() {
   const state = createInitialState('ending');
@@ -45,6 +47,9 @@ test('隐藏行动检查剧情承诺、证据、盟友、广播与单次窗口',
   state.flags = ['evidence-signal', 'evidence-ledger', 'evidence-van', 'decoded-broadcast', 'truth-window-open'];
   state.relationships['lin-zhou'] = 20;
   state.relationships['qiu-lan'] = 22;
+  state.shelter.power = 6;
+  state.inventory = addItem(state.inventory, ITEM_MAP.radio, 1, absoluteDay(state));
+  state.inventory = addItem(state.inventory, ITEM_MAP['copper-wire'], 1, absoluteDay(state));
   assert.equal(truthEndingReady(state), true);
   state.flags.push('truth-attempted');
   assert.equal(truthEndingReady(state), false);

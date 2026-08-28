@@ -1,9 +1,13 @@
 import { createFurnitureState } from '../data/furniture.ts';
 import { DEEP_LOCATIONS } from '../data/deep-exploration.ts';
 import { ITEM_MAP } from '../data/items.ts';
+import { EVENT_MAP } from '../data/events.ts';
+import { DAILY_COMMISSION_MAP } from '../data/commissions.ts';
+import { NPCS } from '../data/world.ts';
 import type { GameState, MetaState, Outcome, SettingsState, StorageLike } from '../types.ts';
 import { expireItems } from './inventory.ts';
 import { ensureAssignedDailyWish } from './daily.ts';
+import { foodFamily } from './nutrition.ts';
 import { createAssignedDailyPlan } from './wish-plan.ts';
 import {
   absoluteDay,
@@ -13,6 +17,8 @@ import {
   META_SAVE_KEY,
   PREVIOUS_GAME_SAVE_KEY,
   SETTINGS_KEY,
+  VERSION2_GAME_SAVE_KEY,
+  isEventEligible,
 } from './state.ts';
 import { PREP_DAY_START, SURVIVAL_DAY_START } from './time.ts';
 
@@ -36,6 +42,7 @@ function safeParse<T>(value: string | null): T | null {
 export function saveGame(storage: StorageLike, state: GameState): void {
   storage.setItem(GAME_SAVE_KEY, JSON.stringify(state));
   storage.removeItem(PREVIOUS_GAME_SAVE_KEY);
+  storage.removeItem(VERSION2_GAME_SAVE_KEY);
   storage.removeItem(LEGACY_GAME_SAVE_KEY);
 }
 
@@ -44,7 +51,16 @@ type LegacyOutcome = Omit<Outcome, 'variantId' | 'keyChoices'> & {
   keyChoices?: string[];
 };
 
-type Version2GameState = Omit<GameState, 'version' | 'dailyPoints' | 'dailyPlan' | 'dailySettlement' | 'outcome'> & {
+type Version3GameState = Omit<GameState, 'version' | 'shelter' | 'foodFatigue' | 'foodFamilyFatigue' | 'eatenFoodIds' | 'lastContactDay'> & {
+  version: 3;
+  shelter: Omit<GameState['shelter'], 'rawWater'> & { rawWater?: number; storage?: number };
+  foodFatigue?: Record<string, number>;
+  foodFamilyFatigue?: Record<string, number>;
+  eatenFoodIds?: string[];
+  lastContactDay?: number;
+};
+
+type Version2GameState = Omit<Version3GameState, 'version' | 'dailyPoints' | 'dailyPlan' | 'dailySettlement' | 'outcome'> & {
   version: 2;
   outcome?: LegacyOutcome;
 };
@@ -67,7 +83,7 @@ function normalizeOutcome(outcome: LegacyOutcome | undefined): Outcome | undefin
 function hasValidCore(state: Partial<GameState> | null): state is GameState {
   return Boolean(
     state
-    && state.version === 3
+    && state.version === 4
     && state.runId
     && ['easy', 'normal', 'hard'].includes(state.difficulty ?? '')
     && ['prep', 'survival', 'ended'].includes(state.phase ?? '')
@@ -83,8 +99,30 @@ function hasValidCore(state: Partial<GameState> | null): state is GameState {
   );
 }
 
+function inferFoodFamilyFatigue(foodFatigue: Record<string, number>): Record<string, number> {
+  const inferred: Record<string, number> = {};
+  for (const [itemId, fatigue] of Object.entries(foodFatigue)) {
+    const item = ITEM_MAP[itemId];
+    if (!item) continue;
+    const family = foodFamily(item);
+    inferred[family] = Math.min(100, (inferred[family] ?? 0) + Math.round(fatigue * 0.55));
+  }
+  return inferred;
+}
+
 function removeStaleBatches(state: GameState): GameState {
   const next = structuredClone(state);
+  if (!Array.isArray(next.feedback)) next.feedback = [];
+  if (!Array.isArray(next.seenEvents)) next.seenEvents = [];
+  next.seenEvents = [...new Set(next.seenEvents.filter((eventId) => typeof eventId === 'string' && Boolean(EVENT_MAP[eventId])))];
+  if (!Array.isArray(next.injuries)) next.injuries = [];
+  next.injuries = [...new Set(next.injuries.filter((injury) => typeof injury === 'string'))];
+  if (!next.relationships || typeof next.relationships !== 'object' || Array.isArray(next.relationships)) next.relationships = {};
+  next.relationships = Object.fromEntries(NPCS.map((npc) => [npc.id, Math.min(60, Math.max(-30, Number.isFinite(next.relationships[npc.id]) ? next.relationships[npc.id] : 0))]));
+  if (!next.visited || typeof next.visited !== 'object' || Array.isArray(next.visited)) next.visited = {};
+  if (!next.storePurchases || typeof next.storePurchases !== 'object' || Array.isArray(next.storePurchases)) next.storePurchases = {};
+  if (!Number.isFinite(next.shelter.rawWater)) next.shelter.rawWater = 0;
+  next.shelter.rawWater = Math.min(40, Math.max(0, next.shelter.rawWater));
   if (typeof next.autoRations !== 'boolean') next.autoRations = next.difficulty === 'easy';
   if (!['balanced', 'cold', 'light', 'off'].includes(next.powerPolicy)) next.powerPolicy = 'balanced';
   if (!next.powerTrap || !Number.isFinite(next.powerTrap.level)) next.powerTrap = { level: 0, armed: false };
@@ -96,8 +134,26 @@ function removeStaleBatches(state: GameState): GameState {
   next.discoveredRecipes = [...new Set(next.discoveredRecipes.filter((recipeId) => typeof recipeId === 'string'))];
   if (!Number.isFinite(next.foodBoredom)) next.foodBoredom = 0;
   next.foodBoredom = Math.min(100, Math.max(0, next.foodBoredom));
+  if (!next.foodFatigue || typeof next.foodFatigue !== 'object' || Array.isArray(next.foodFatigue)) next.foodFatigue = {};
+  next.foodFatigue = Object.fromEntries(Object.entries(next.foodFatigue)
+    .filter(([itemId, value]) => Boolean(ITEM_MAP[itemId]?.tags?.includes('food')) && Number.isFinite(value))
+    .map(([itemId, value]) => [itemId, Math.min(100, Math.max(0, Number(value)))]));
   if (!Array.isArray(next.recentMeals)) next.recentMeals = [];
-  next.recentMeals = next.recentMeals.filter((itemId) => typeof itemId === 'string' && Boolean(ITEM_MAP[itemId])).slice(-6);
+  next.recentMeals = next.recentMeals.filter((itemId) => typeof itemId === 'string' && Boolean(ITEM_MAP[itemId]?.tags?.includes('food'))).slice(-10);
+  const inferredEaten = [...new Set([...Object.keys(next.foodFatigue), ...next.recentMeals])];
+  if (!Array.isArray(next.eatenFoodIds)) next.eatenFoodIds = inferredEaten;
+  next.eatenFoodIds = [...new Set(next.eatenFoodIds
+    .filter((itemId) => typeof itemId === 'string' && Boolean(ITEM_MAP[itemId]?.tags?.includes('food')))
+    .concat(inferredEaten))];
+  if (next.foodFamilyFatigue && typeof next.foodFamilyFatigue === 'object' && !Array.isArray(next.foodFamilyFatigue)) {
+    next.foodFamilyFatigue = Object.fromEntries(Object.entries(next.foodFamilyFatigue)
+      .filter(([family, value]) => Boolean(family) && Number.isFinite(value))
+      .map(([family, value]) => [family, Math.min(100, Math.max(0, Number(value)))]));
+  } else next.foodFamilyFatigue = inferFoodFamilyFatigue(next.foodFatigue);
+  if (!Number.isFinite(next.lastContactDay)) {
+    if (next.broadcasts > 0) next.lastContactDay = absoluteDay(next);
+    else delete next.lastContactDay;
+  }
   if (!next.explorationSkills || typeof next.explorationSkills !== 'object') {
     next.explorationSkills = { lockpicking: { level: 0, xp: 0 }, toolUse: { level: 0, xp: 0 }, search: { level: 0, xp: 0 } };
   }
@@ -119,7 +175,6 @@ function removeStaleBatches(state: GameState): GameState {
     ) next.expedition = undefined;
   }
   if (!Number.isFinite(next.isolationNights)) next.isolationNights = 0;
-  if (!next.storePurchases || typeof next.storePurchases !== 'object') next.storePurchases = {};
   if (next.debt && (!Number.isFinite(next.debt.balance) || next.debt.balance <= 0)) next.debt = undefined;
   if (next.shoppingTrip && (
     !['market', 'pharmacy', 'hardware', 'fuel'].includes(next.shoppingTrip.store)
@@ -128,6 +183,10 @@ function removeStaleBatches(state: GameState): GameState {
     || !Number.isFinite(next.shoppingTrip.capacity)
   )) next.shoppingTrip = undefined;
   next.inventory = expireItems(next.inventory, absoluteDay(next)).inventory;
+  if (next.currentEventId) {
+    const currentEvent = EVENT_MAP[next.currentEventId];
+    if (!currentEvent || !isEventEligible(next, currentEvent)) next.currentEventId = undefined;
+  }
   const seenDailySettlements = new Set<string>();
   const seenLogIds = new Set<string>();
   let restoredLogSequence = 1;
@@ -152,6 +211,9 @@ function removeStaleBatches(state: GameState): GameState {
       seenLogIds.add(id);
       return { ...log, id: id || `${next.runId}-restored-log-${index + 1}` };
     });
+  if (next.flags.some((flag) => flag.startsWith('deep:north-substation:battery-bank:day:'))) {
+    next.flags.push('substation-battery-bank-drained');
+  }
   next.flags = [...new Set(next.flags)];
   next.feedback = next.feedback.filter((item) => item.label !== '愿望点');
   if (next.dailySettlement && (next.dailySettlement.basePoints > 0 || next.dailySettlement.deadlinePoints > 0)) {
@@ -185,22 +247,61 @@ function removeStaleBatches(state: GameState): GameState {
   }
   if (next.dailyPlan && !Array.isArray(next.dailyPlan.commissions)) {
     next.dailyPlan.commissions = createAssignedDailyPlan(next, next.dailyPlan.wishId).commissions;
+  } else if (next.dailyPlan?.commissions) {
+    const seen = new Set<string>();
+    next.dailyPlan.commissions = next.dailyPlan.commissions.filter((commission) => {
+      if (!commission || !DAILY_COMMISSION_MAP[commission.id] || seen.has(commission.id)) return false;
+      seen.add(commission.id);
+      return true;
+    });
   }
   if (!next.expedition) delete next.expedition;
   return ensureAssignedDailyWish(next);
+}
+
+function migrateVersion3(state: Version3GameState): GameState | null {
+  if (!state.runId || !['easy', 'normal', 'hard'].includes(state.difficulty) || !['prep', 'survival', 'ended'].includes(state.phase) || !state.stats || !state.shelter || !state.inventory) return null;
+  const { version: _version, shelter, ...rest } = state;
+  const { storage: _storage, rawWater: existingRawWater, ...shelterRest } = shelter;
+  void _version;
+  void _storage;
+  const recentMeals = Array.isArray(state.recentMeals) ? state.recentMeals : [];
+  const migratedFatigue = state.foodFatigue ?? Object.fromEntries(
+    [...new Set(recentMeals)].map((itemId) => [itemId, Math.min(100, recentMeals.filter((meal) => meal === itemId).length * 8)]),
+  );
+  const migratedFamilyFatigue = state.foodFamilyFatigue && Object.keys(state.foodFamilyFatigue).length
+    ? state.foodFamilyFatigue
+    : inferFoodFamilyFatigue(migratedFatigue);
+  const next = removeStaleBatches({
+    ...rest,
+    version: 4,
+    shelter: {
+      ...shelterRest,
+      // v3 mixed several water sources in one counter and did not retain enough
+      // provenance to reconstruct what remains. Keep the surviving counter potable
+      // rather than silently downgrade a later clean-water reward during migration.
+      water: Math.max(0, Number(shelter.water) || 0),
+      rawWater: Number.isFinite(existingRawWater) ? Number(existingRawWater) : 0,
+    },
+    foodFatigue: migratedFatigue,
+    foodFamilyFatigue: migratedFamilyFatigue,
+    eatenFoodIds: state.eatenFoodIds ?? [],
+    ...(Number.isFinite(state.lastContactDay) ? { lastContactDay: state.lastContactDay } : {}),
+  });
+  return next;
 }
 
 function migrateVersion2(state: Version2GameState): GameState | null {
   if (!state.runId || !['easy', 'normal', 'hard'].includes(state.difficulty) || !['prep', 'survival', 'ended'].includes(state.phase) || !state.stats || !state.shelter || !state.inventory) return null;
   const { version: _version, outcome, ...rest } = state;
   void _version;
-  const next: GameState = {
+  const next: Version3GameState = {
     ...rest,
     version: 3,
     dailyPoints: 0,
     outcome: normalizeOutcome(outcome),
   };
-  return removeStaleBatches(next);
+  return migrateVersion3(next);
 }
 
 function migrateLegacy(state: LegacyGameState): GameState | null {
@@ -227,7 +328,12 @@ export function loadGame(storage: StorageLike): GameState | null {
     const current = safeParse<Partial<GameState>>(currentRaw);
     return hasValidCore(current) ? removeStaleBatches(current) : null;
   }
-  const version2Raw = storage.getItem(PREVIOUS_GAME_SAVE_KEY);
+  const version3Raw = storage.getItem(PREVIOUS_GAME_SAVE_KEY);
+  if (version3Raw !== null) {
+    const version3 = safeParse<Version3GameState>(version3Raw);
+    return version3?.version === 3 ? migrateVersion3(version3) : null;
+  }
+  const version2Raw = storage.getItem(VERSION2_GAME_SAVE_KEY);
   if (version2Raw !== null) {
     const version2 = safeParse<Version2GameState>(version2Raw);
     return version2?.version === 2 ? migrateVersion2(version2) : null;
@@ -240,6 +346,7 @@ export function loadGame(storage: StorageLike): GameState | null {
 export function clearGame(storage: StorageLike): void {
   storage.removeItem(GAME_SAVE_KEY);
   storage.removeItem(PREVIOUS_GAME_SAVE_KEY);
+  storage.removeItem(VERSION2_GAME_SAVE_KEY);
   storage.removeItem(LEGACY_GAME_SAVE_KEY);
 }
 

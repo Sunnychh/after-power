@@ -4,7 +4,7 @@ import { ITEM_MAP } from '../game/data/items.ts';
 import { performPrepAction, performSurvivalAction, useItem } from '../game/engine/actions.ts';
 import { endDay } from '../game/engine/day.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
-import { powerUpgradeSpec, projectedPowerNights, setPowerPolicy } from '../game/engine/power.ts';
+import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
 import { createInitialState } from '../game/engine/state.ts';
 import { SURVIVAL_DAY_START } from '../game/engine/time.ts';
 import { activateDay } from './helpers.ts';
@@ -102,7 +102,7 @@ test('低电量不会透支，供电失败会明确写入日志', () => {
   assert.ok(result.state.logs.some((log) => log.body.includes('电力不足 2 点')));
 });
 
-test('电池与燃料换电不再覆盖整局，困难后期续航包含警戒线负载', () => {
+test('电池与燃料换电不再覆盖整局，发电机本体与油耗都会严格检查', () => {
   let state = survivalState('energy-budget');
   state.difficulty = 'hard';
   state.survivalDay = 9;
@@ -123,5 +123,4 @@ test('电池与燃料换电不再覆盖整局，困难后期续航包含警戒�
   assert.equal(state.shelter.fuel, 0);
   assert.equal(inventoryCount(state.inventory, 'fuel-generator'), 1, '发电机本体不会在运行后消耗');
   assert.equal(performSurvivalAction(state, 'generator').ok, false);
-  assert.equal(projectedPowerNights(state), 4, '均衡供电 2 + 困难警戒 1，应按每夜 3 电计算');
 });

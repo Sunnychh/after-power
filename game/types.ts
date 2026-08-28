@@ -10,7 +10,7 @@ export interface PowerTrapState {
 }
 
 export type StatKey = 'satiety' | 'hydration' | 'health' | 'morale' | 'stamina';
-export type ShelterKey = 'integrity' | 'water' | 'power' | 'fuel' | 'reinforcement' | 'storage' | 'generator';
+export type ShelterKey = 'integrity' | 'water' | 'rawWater' | 'power' | 'fuel' | 'reinforcement' | 'generator';
 
 export interface CoreStats {
   satiety: number;
@@ -22,11 +22,13 @@ export interface CoreStats {
 
 export interface ShelterState {
   integrity: number;
+  /** Drinkable water in labelled shelter containers. */
   water: number;
+  /** Collected rain/leak water. It must be purified before use. */
+  rawWater: number;
   power: number;
   fuel: number;
   reinforcement: number;
-  storage: number;
   generator: number;
 }
 
@@ -121,6 +123,8 @@ export interface EventOption {
   label: string;
   hint: string;
   result: string;
+  /** This particular choice contains a live human exchange. */
+  countsAsContact?: boolean;
   requirements?: Requirement[];
   effects?: EventEffect;
   danger?: number;
@@ -141,6 +145,10 @@ export interface GameEvent {
   excludesFlags?: string[];
   chain?: { id: string; step: number };
   npc?: string;
+  /** The scene is heard through the player's own radio, not a nearby device or loudspeaker. */
+  requiresRadio?: boolean;
+  /** Every resolution of this scene confirms live human contact. */
+  countsAsContact?: boolean;
   options: EventOption[];
 }
 
@@ -237,7 +245,7 @@ export interface DailySettlement {
 }
 
 export interface GameState {
-  version: 3;
+  version: 4;
   runId: string;
   seed: number;
   rngState: number;
@@ -259,10 +267,18 @@ export interface GameState {
   weather: Weather;
   intel: number;
   broadcasts: number;
+  /** Absolute day of the latest live exchange; old broadcasts do not prevent isolation forever. */
+  lastContactDay?: number;
   cookingAttempts: number;
   cookingSkill: number;
   discoveredRecipes: string[];
   foodBoredom: number;
+  /** Persistent familiarity for each food. It fades slowly instead of resetting when meals alternate. */
+  foodFatigue: Record<string, number>;
+  /** Broader taste/texture fatigue shared by related foods, such as two kinds of noodles. */
+  foodFamilyFatigue: Record<string, number>;
+  /** A permanent run-level record so an old food cannot become "first-time" again after a short break. */
+  eatenFoodIds: string[];
   recentMeals: string[];
   explorationSkills: ExplorationSkills;
   expedition?: ExpeditionState;

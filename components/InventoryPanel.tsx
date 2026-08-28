@@ -8,8 +8,7 @@ import { inventorySummary } from '../game/engine/actions.ts';
 import { absoluteDay } from '../game/engine/state.ts';
 import type { GameState } from '../game/types.ts';
 import { POWER_POLICY_MAP } from '../game/data/power.ts';
-import { projectedPowerNights } from '../game/engine/power.ts';
-import { siegeMitigation } from '../game/engine/siege.ts';
+import { nightPowerBudget, siegeMitigation } from '../game/engine/siege.ts';
 import { foodVarietyPreview } from '../game/engine/nutrition.ts';
 import { CLUES, isClueDiscovered } from '../game/data/clues.ts';
 import { RECIPES } from '../game/data/recipes.ts';
@@ -25,8 +24,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
   const summary = inventorySummary(state);
   const currentDay = absoluteDay(state);
   const powerPolicy = POWER_POLICY_MAP[state.powerPolicy];
-  const alarmCost = state.phase === 'survival' && state.difficulty === 'hard' && state.survivalDay >= 8 ? 1 : 0;
-  const powerNights = projectedPowerNights(state);
+  const powerBudget = nightPowerBudget(state);
   const entries = Object.keys(state.inventory)
     .map((id) => ITEM_MAP[id])
     .filter(Boolean)
@@ -92,16 +90,17 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             <div><dt>结构完整度</dt><dd>{state.shelter.integrity} / 100</dd></div>
             <div><dt>门窗加固</dt><dd>等级 {state.shelter.reinforcement}</dd></div>
             {state.difficulty === 'hard' && <div><dt>波次吸收</dt><dd>{siegeMitigation(state)} 点 / 波</dd></div>}
-            <div><dt>可用储水</dt><dd>{state.shelter.water} 单位</dd></div>
+            <div><dt>可饮用净水</dt><dd>{state.shelter.water} 单位</dd></div>
+            <div><dt>待净化原水</dt><dd>{state.shelter.rawWater} 单位</dd></div>
             <div><dt>备用电力</dt><dd>{state.shelter.power} 单位</dd></div>
             <div><dt>燃料储备</dt><dd>{state.shelter.fuel} 单位</dd></div>
             <div><dt>供电改造</dt><dd>等级 {state.shelter.generator}</dd></div>
             <div><dt>电力陷阱</dt><dd>{state.powerTrap.level ? `${powerTrapDefinition(state.powerTrap.level)?.name} · ${state.powerTrap.armed ? '已接通' : '已断开'}` : '未安装'}</dd></div>
             <div><dt>燃油发电机</dt><dd>{inventoryCount(state.inventory, 'fuel-generator') > 0 ? '已购置 · 3 燃料 / 5 电力' : '未购置 · 无法燃油发电'}</dd></div>
-            <div><dt>夜间负载</dt><dd>{powerPolicy.name} · 约 {powerPolicy.expectedPower + alarmCost} 电/夜{alarmCost ? '（含警戒）' : ''}</dd></div>
-            <div><dt>预计续航</dt><dd>{powerNights === null ? '已关闭供电' : `约 ${powerNights} 夜`}</dd></div>
+            <div><dt>今夜负载</dt><dd>{powerPolicy.name} · {powerBudget.totalSpend} 电（策略 {powerBudget.policySpend}{powerBudget.weatherSpend ? ` / 暴雨 ${powerBudget.weatherSpend}` : ''}{powerBudget.trapSpend ? ` / 陷阱 ${powerBudget.trapSpend}` : ''}{powerBudget.alarmSpend ? ` / 警戒 ${powerBudget.alarmSpend}` : ''}）</dd></div>
+            <div><dt>今夜后电量</dt><dd>{state.shelter.power === 0 ? '当前无可调度电力' : powerBudget.totalSpend > 0 ? `预计剩余 ${powerBudget.remaining}；后续波次另行预演` : '今夜无计划耗电；不代表后续波次无负载'}</dd></div>
             <div><dt>料理技能</dt><dd>{state.cookingSkill} / 5 级 · 尝试 {state.cookingAttempts} 次</dd></div>
-            <div><dt>饮食厌倦</dt><dd>{state.foodBoredom} / 100 · 料理与换口味可降低</dd></div>
+            <div><dt>饮食厌倦</dt><dd>{state.foodBoredom} / 100 · 扩大菜单可有限缓解</dd></div>
             <div><dt>娱乐储备</dt><dd>{['paperback', 'playing-cards', 'music-player'].filter((id) => inventoryCount(state.inventory, id) > 0).length} / 3 种</dd></div>
             <div><dt>最近进食</dt><dd title={state.recentMeals.map((id) => ITEM_MAP[id]?.name ?? id).join(' → ') || '尚无记录'}>{state.recentMeals.length ? state.recentMeals.slice(-3).map((id) => ITEM_MAP[id]?.name ?? id).join(' → ') : '尚无记录'}</dd></div>
           </dl>

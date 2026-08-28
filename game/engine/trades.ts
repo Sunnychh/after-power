@@ -7,7 +7,7 @@ import { dailyActionBlockedReason } from './daily.ts';
 import { inventoryCount, inventoryWeight } from './inventory.ts';
 import { isNpcUnlocked } from './npcs.ts';
 import { normalizeSeed, randomInt } from './rng.ts';
-import { applyEffect, createLog } from './state.ts';
+import { absoluteDay, applyEffect, createLog } from './state.ts';
 import { timeDisabledReason } from './time.ts';
 
 export const TRADE_MINUTES = 60;
@@ -71,6 +71,7 @@ export function executeTrade(state: GameState, offerId: string): EngineResult {
     relationships: { [offer.npcId]: 3 },
     addFlags: [tradeFlag(state, offer.id)],
   }, `交易 · ${NPC_MAP[offer.npcId].name}`);
+  next.lastContactDay = absoluteDay(next);
   next.logs.push(createLog(next, `交易 · ${NPC_MAP[offer.npcId].name}`, `${offer.result} 付出：${tradeItemsText(offer.give)}；获得：${tradeItemsText(offer.receive)}。`, 'good'));
   return completeTimedAction(next, TRADE_MINUTES, `survival:trade:${offer.id}`);
 }

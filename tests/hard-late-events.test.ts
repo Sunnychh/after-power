@@ -51,5 +51,6 @@ test('库存压力事件始终保留无物品软锁选项，投入物资则严�
   const resolved = resolveCurrentEvent(state, 0);
   assert.equal(resolved.ok, true);
   assert.equal(inventoryCount(resolved.state.inventory, 'water-bottle'), before - 2);
-  assert.equal(resolved.state.relationships['chen-meng'], 10);
+  assert.ok(resolved.state.flags.includes('late-water-shared'));
+  assert.equal(resolved.state.relationships['chen-meng'], 0, '未通过广播认识陈檬时不能凭空增加她的信任');
 });

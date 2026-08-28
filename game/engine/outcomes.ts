@@ -1,16 +1,27 @@
 import { DIFFICULTY_MAP } from '../data/difficulties.ts';
+import { CLUES, isClueDiscovered } from '../data/clues.ts';
 import type { GameState, MetaState, Outcome } from '../types.ts';
+import { inventoryCount } from './inventory.ts';
+
+export const TRUTH_POWER_COST = 6;
 
 export function truthEvidenceCount(state: GameState): number {
-  const evidenceFlags = ['evidence-signal', 'evidence-ledger', 'evidence-van', 'evidence-flare', 'evidence-quarantine-list'];
-  const flagCount = evidenceFlags.filter((flag) => state.flags.includes(flag)).length;
-  const itemCount = ['lab-badge', 'sample-tube', 'bus-manifest', 'sealed-letter']
-    .filter((itemId) => state.inventory[itemId]?.some((batch) => batch.quantity > 0)).length;
-  return flagCount + itemCount;
+  return CLUES.filter((clue) => clue.evidence && isClueDiscovered(state, clue)).length;
 }
 
 export function trustedNpcCount(state: GameState): number {
   return Object.values(state.relationships).filter((relation) => relation >= 18).length;
+}
+
+export function truthEndingMissingRequirements(state: GameState): string[] {
+  const missing: string[] = [];
+  if (truthEvidenceCount(state) < 3) missing.push(`证据 3（当前 ${truthEvidenceCount(state)}）`);
+  if (trustedNpcCount(state) < 2) missing.push(`可信联系人 2（当前 ${trustedNpcCount(state)}）`);
+  if (!(state.broadcasts >= 3 || state.flags.includes('decoded-broadcast'))) missing.push('已解码广播');
+  if (inventoryCount(state.inventory, 'radio') < 1) missing.push('短波收音机 ×1');
+  if (inventoryCount(state.inventory, 'copper-wire') < 1) missing.push('铜线卷 ×1');
+  if (state.shelter.power < TRUTH_POWER_COST) missing.push(`备用电力 ${TRUTH_POWER_COST}（当前 ${state.shelter.power}）`);
+  return missing;
 }
 
 export function truthEndingReady(state: GameState): boolean {
@@ -19,9 +30,7 @@ export function truthEndingReady(state: GameState): boolean {
     && state.survivalDay >= decisionDay
     && state.flags.includes('truth-window-open')
     && !state.flags.includes('truth-attempted')
-    && truthEvidenceCount(state) >= 3
-    && trustedNpcCount(state) >= 2
-    && (state.broadcasts >= 3 || state.flags.includes('decoded-broadcast'));
+    && truthEndingMissingRequirements(state).length === 0;
 }
 
 function deathOutcome(state: GameState): Outcome {
@@ -145,7 +154,7 @@ function survivorOutcome(state: GameState): Outcome {
     return {
       id: 'survivor', variantId: 'survivor-community', title: '普通结局 · 一起走过西侧通道',
       text: `第${goal}天清晨，西侧人行通道开放四小时。有人搬药箱，有人推水车，你负责清点人数。你们没有成为英雄，只是没有把任何还能走的人留在楼里。`,
-      memoryEarned: 3, keyChoices: [`${trustedNpcCount(state)} 名盟友同行`, '选择普通撤离'],
+      memoryEarned: 3, keyChoices: [`${trustedNpcCount(state)} 名可信联系人同行`, '选择普通撤离'],
     };
   }
   if (state.flags.includes('trusted-checkpoint')) {
@@ -174,7 +183,7 @@ function truthOutcome(state: GameState): Outcome {
     return {
       id: 'truth', variantId: 'truth-community', title: '隐藏结局 · 四个人的证词',
       text: '原始数据、楼内名单和四段互相印证的证词同时越过封锁线。天亮后，你们没有挤进官方车队，而是沿维修通道轮流背着设备离开。任何一个人的版本都不再是孤证。',
-      memoryEarned: 5, keyChoices: [`${trustedNpcCount(state)} 名盟友共同作证`, '护送证据离城'],
+      memoryEarned: 5, keyChoices: [`${trustedNpcCount(state)} 名可信联系人共同作证`, '护送证据离城'],
     };
   }
   if (state.inventory['sample-tube']?.some((batch) => batch.quantity > 0) || state.flags.includes('evidence-signal')) {

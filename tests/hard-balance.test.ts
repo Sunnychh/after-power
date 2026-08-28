@@ -128,16 +128,17 @@ test('准备不足且不维护的困难路线会在连续围攻中明确失败',
   assert.ok(state.survivalDay < 14);
 });
 
-test('困难愿望物资只能补贴一部分整局消耗，不能单独养活玩家', () => {
+test('困难愿望与委托的完整积分预算仍只能补贴一部分整局消耗', () => {
   const hard = createInitialState('reward-budget', [], 0, 'hard');
-  assert.equal(dailyRewardCost(hard, 'food-cache'), 3);
-  assert.equal(dailyRewardCost(hard, 'charge-pack'), 4);
+  assert.equal(dailyRewardCost(hard, 'food-cache'), 4);
+  assert.equal(dailyRewardCost(hard, 'charge-pack'), 5);
   assert.match(dailyRewardDescription(hard, 'food-cache'), /压缩饼干 ×1/);
   const totalFoodDrain = Array.from({ length: 14 }, (_, index) => survivalPressure('hard', index + 1).foodDrain).reduce((sum, value) => sum + value, 0);
   const totalWaterDrain = Array.from({ length: 14 }, (_, index) => survivalPressure('hard', index + 1).waterDrain).reduce((sum, value) => sum + value, 0);
-  const maximumPerfectWishPoints = 21; // 灾前 7 天 + 封锁 14 天，每天全部达成。
-  const foodFromPoints = Math.floor(maximumPerfectWishPoints / dailyRewardCost(hard, 'food-cache')) * (ITEM_MAP.crackers.effects?.satiety ?? 0);
-  const waterFromPoints = Math.floor(maximumPerfectWishPoints / dailyRewardCost(hard, 'water-cache')) * (ITEM_MAP['water-bottle'].effects?.hydration ?? 0);
-  assert.ok(foodFromPoints <= totalFoodDrain * 0.5);
-  assert.ok(waterFromPoints <= totalWaterDrain * 0.5);
+  const maximumPerfectPoints = 42; // 21 天 ×（愿望 1 + 困难委托 1）。
+  const maximumResourceClaims = Math.floor(maximumPerfectPoints / dailyRewardCost(hard, 'food-cache'));
+  assert.ok(maximumResourceClaims < 14, '即使完美完成，也不能每天领取一份生存物资');
+  const balancedClaims = Math.floor(maximumResourceClaims / 2);
+  assert.ok(balancedClaims * (ITEM_MAP.crackers.effects?.satiety ?? 0) <= totalFoodDrain * 0.35);
+  assert.ok(balancedClaims * (ITEM_MAP['water-bottle'].effects?.hydration ?? 0) <= totalWaterDrain * 0.35);
 });

@@ -24,6 +24,8 @@ export const CLUES: ClueDefinition[] = [
   { id: 'warehouse-key', name: '河西后仓钥匙', description: ITEM_MAP['warehouse-key'].description, source: '超市冷藏区', item: 'warehouse-key' },
   { id: 'manifest', name: '撤离车队名单', description: ITEM_MAP['bus-manifest'].description, source: '东郊总站', item: 'bus-manifest', evidence: true },
   { id: 'sample', name: 'C-17 低温样本', description: ITEM_MAP['sample-tube'].description, source: '诊所或变电站', item: 'sample-tube', evidence: true },
+  { id: 'badge', name: '邱岚的疾控工牌', description: ITEM_MAP['lab-badge'].description, source: '青禾诊所', item: 'lab-badge', evidence: true },
+  { id: 'sealed-letter', name: '未寄出的内部信', description: ITEM_MAP['sealed-letter'].description, source: '地铁维修区', item: 'sealed-letter', evidence: true },
 ];
 
 export function isClueDiscovered(state: GameState, clue: ClueDefinition): boolean {

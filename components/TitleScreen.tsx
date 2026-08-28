@@ -69,7 +69,7 @@ export function TitleScreen({ hasSave, seed, difficulty, autoRations, loanTier, 
           {loanTier !== 'none' && <p className="loan-warning">借款不是免费开局奖励：封锁后可花 30 分钟还款；逾期会增加余额、降低精神、损伤门锁，并提高所有危险判定。</p>}
         </section>
         <label className="run-option">
-          <span><strong>夜间自动补充</strong><small>低于阈值时自动使用背包食物、饮水或水箱储水；关闭后由你自行安排。</small></span>
+          <span><strong>夜间自动补充</strong><small>低于 60 时按临期、厌倦与缺口自动使用食水。{difficulty === 'easy' ? '简易默认开启。' : difficulty === 'normal' ? '标准默认关闭，你可以自由开启。' : '困难默认关闭，也可主动开启。'}</small></span>
           <input type="checkbox" checked={autoRations} onChange={(event) => onAutoRationsChange(event.target.checked)} />
         </label>
         <label className="seed-field">

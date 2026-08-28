@@ -158,8 +158,8 @@ export default function GameApp() {
         <Modal title="如何在停电以后活下去" onClose={() => setModal(null)} footer={<button className="primary-inline" onClick={() => setModal(null)} type="button">明白了</button>}>
           <div className="guide-grid">
             <section><b>01</b><h3>难度与借贷</h3><p>简易难度物资更多、危险更低。借贷能增加开局现金，但封锁后仍会到期、催收并提高危险，请把还款算进采购预算。</p></section>
-            <section><b>02</b><h3>时间与休息</h3><p>行动会推进页面中的游戏时钟，到达日终自动结算。白天休息两小时也能恢复体力，不再受固定行动点限制。</p></section>
-            <section><b>03</b><h3>物资、料理与档案</h3><p>物资会列明分类和状态点数。厨具允许自选食材，成功料理会记录配方；左侧“档案”可查线索和配方。</p></section>
+            <section><b>02</b><h3>时间、休息与低状态</h3><p>行动会推进游戏时钟，到达日终自动结算；白天休息两小时可恢复体力。饱腹或水分过低会明显预警，并提高危险、损失精神与睡眠恢复。</p></section>
+            <section><b>03</b><h3>物资、料理与档案</h3><p>物资会列明分类和状态点数。厨具允许自选食材，成功料理会记录配方；只在少数食物间交替也会累积熟悉与厌倦，新口味只能有限缓解。</p></section>
             <section><b>04</b><h3>愿望、委托与结局</h3><p>愿望达成后在夜间结算，额外的每日委托完成即加点；两者都没有失败惩罚。最后一天由你选择撤离路线。</p></section>
           </div>
         </Modal>

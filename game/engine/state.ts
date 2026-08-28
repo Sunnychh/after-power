@@ -23,9 +23,11 @@ import { normalizeSeed, randomInt, seededPick } from './rng.ts';
 import { PREP_DAY_START } from './time.ts';
 import { createAssignedDailyPlan } from './wish-plan.ts';
 import { isNpcUnlocked } from './npcs.ts';
+import { radioUseMethod } from './radio.ts';
 
-export const GAME_SAVE_KEY = 'after-power-game-v3';
-export const PREVIOUS_GAME_SAVE_KEY = 'after-power-game-v2';
+export const GAME_SAVE_KEY = 'after-power-game-v4';
+export const PREVIOUS_GAME_SAVE_KEY = 'after-power-game-v3';
+export const VERSION2_GAME_SAVE_KEY = 'after-power-game-v2';
 export const LEGACY_GAME_SAVE_KEY = 'after-power-game-v1';
 export const META_SAVE_KEY = 'after-power-meta-v1';
 export const SETTINGS_KEY = 'after-power-settings-v1';
@@ -72,7 +74,7 @@ export function createInitialState(
   const easy = difficulty === 'easy';
   const hard = difficulty === 'hard';
   const state: GameState = {
-    version: 3,
+    version: 4,
     runId: `run-${normalized.toString(16)}-${runOrdinal}`,
     seed: normalized,
     rngState: normalized,
@@ -102,10 +104,10 @@ export function createInitialState(
     shelter: {
       integrity: 45,
       water: 0,
+      rawWater: 0,
       power: 0,
       fuel: 0,
       reinforcement: 0,
-      storage: 70,
       generator: 0,
       ...difficultyConfig.startingShelter,
     },
@@ -121,6 +123,9 @@ export function createInitialState(
     cookingSkill: 0,
     discoveredRecipes: [],
     foodBoredom: 0,
+    foodFatigue: {},
+    foodFamilyFatigue: {},
+    eatenFoodIds: [],
     recentMeals: [],
     explorationSkills: {
       lockpicking: { level: 0, xp: 0 },
@@ -191,11 +196,12 @@ export function unmetRequirementLabel(state: GameState, requirements: Requiremen
   return null;
 }
 
-function eventEligible(state: GameState, event: GameEvent): boolean {
+export function isEventEligible(state: GameState, event: GameEvent): boolean {
   const phase = state.phase === 'prep' ? 'prep' : 'survival';
   if (event.phase !== 'both' && event.phase !== phase) return false;
   if (state.seenEvents.includes(event.id)) return false;
   if (event.npc && !isNpcUnlocked(state, event.npc)) return false;
+  if (event.requiresRadio && !radioUseMethod(state, 'event')) return false;
   const day = phase === 'prep' ? state.prepDay : state.survivalDay;
   if (event.id === 'final-broadcast-window' && day !== DIFFICULTY_MAP[state.difficulty].truthDecisionDay) return false;
   if (event.difficulties && !event.difficulties.includes(state.difficulty)) return false;
@@ -209,7 +215,7 @@ function eventEligible(state: GameState, event: GameEvent): boolean {
 }
 
 export function selectEvent(state: GameState): GameEvent | undefined {
-  const candidates = EVENTS.filter((event) => eventEligible(state, event));
+  const candidates = EVENTS.filter((event) => isEventEligible(state, event));
   if (!candidates.length) return undefined;
   const day = state.phase === 'prep' ? state.prepDay : state.survivalDay;
   const truthDecisionDay = state.phase === 'survival' ? DIFFICULTY_MAP[state.difficulty].truthDecisionDay : -1;
@@ -228,8 +234,8 @@ export function selectEvent(state: GameState): GameEvent | undefined {
 
 const FEEDBACK_NAMES: Record<string, string> = {
   satiety: '饱腹', hydration: '水分', health: '健康', morale: '精神', stamina: '体力',
-  integrity: '完整度', water: '储水', power: '电力', fuel: '燃料', reinforcement: '加固',
-  storage: '仓储', generator: '供电等级', money: '金钱', intel: '情报', foodBoredom: '饮食厌倦',
+  integrity: '完整度', water: '净水', rawWater: '原水', power: '电力', fuel: '燃料', reinforcement: '加固',
+  generator: '供电等级', money: '金钱', intel: '情报', foodBoredom: '饮食厌倦',
 };
 
 function pushFeedback(state: GameState, key: string, delta: number, reason: string): void {
@@ -258,7 +264,7 @@ export function applyEffect(state: GameState, effect: EventEffect = {}, reason: 
     for (const [rawKey, delta] of Object.entries(effect.shelter)) {
       const key = rawKey as keyof GameState['shelter'];
       const before = next.shelter[key];
-      const max = key === 'integrity' ? 100 : key === 'storage' ? 120 : 40;
+      const max = key === 'integrity' ? 100 : 40;
       next.shelter[key] = clamp(before + (delta ?? 0), 0, max);
       pushFeedback(next, key, next.shelter[key] - before, reason);
     }
@@ -310,8 +316,13 @@ export function dangerRisk(state: GameState, baseRisk: number): DangerCalculatio
   const difficultyModifier = DIFFICULTY_MAP[state.difficulty].riskModifier;
   if (difficultyModifier) factors.push({ label: `${DIFFICULTY_MAP[state.difficulty].name}难度`, delta: difficultyModifier });
   if (state.stats.health < 40) factors.push({ label: '健康偏低', delta: 10 });
-  if (state.stats.morale < 35) factors.push({ label: '精神偏低', delta: 8 });
+  if (state.stats.morale < 35) factors.push({
+    label: hasFlag(state, 'ability:steady') ? '精神偏低 · 危机耐受' : '精神偏低',
+    delta: hasFlag(state, 'ability:steady') ? 4 : 8,
+  });
   if (state.stats.stamina < 30) factors.push({ label: '体力偏低', delta: 8 });
+  if (state.stats.satiety < 35) factors.push({ label: state.stats.satiety <= 20 ? '严重饥饿' : '饱腹偏低', delta: state.stats.satiety <= 20 ? 10 : 6 });
+  if (state.stats.hydration < 35) factors.push({ label: state.stats.hydration <= 20 ? '严重缺水' : '水分偏低', delta: state.stats.hydration <= 20 ? 14 : 8 });
   const debtPenalty = state.debt && state.debt.balance > 0 ? LOAN_MAP[state.debt.tier].riskBonus + Math.min(8, state.debt.missedCollections * 2) : 0;
   if (debtPenalty) factors.push({ label: '未结债务', delta: debtPenalty });
   const gearBonus = inventoryCount(state.inventory, 'respirator') > 0 ? 8 : inventoryCount(state.inventory, 'masks') > 0 ? 4 : 0;
