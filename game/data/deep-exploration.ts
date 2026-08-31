@@ -20,6 +20,12 @@ export interface DeepTargetOption {
   requirements?: DeepOptionRequirement[];
   consumes?: Record<string, number>;
   loot?: Record<string, number>;
+  /**
+   * Progression loot is never removed by difficulty scarcity. It is also
+   * capacity-checked before the option can be committed, so a full backpack
+   * cannot permanently destroy a one-off story route.
+   */
+  guaranteedLoot?: string[];
   skillXp?: Partial<Record<ExplorationSkillId, number>>;
   danger?: number;
   addFlags?: string[];

@@ -5,7 +5,7 @@ import { RECIPES } from '../game/data/recipes.ts';
 import { exploreLocation, performPrepAction, performSurvivalAction } from '../game/engine/actions.ts';
 import { continueAfterMissedWish } from '../game/engine/daily.ts';
 import { endDay, extendColdStorage } from '../game/engine/day.ts';
-import { availableCookingIngredients, availableCookingRecipes, cookingSuccessChance, furnitureActionDisabledReason, performFurnitureAction } from '../game/engine/furniture.ts';
+import { availableCookingIngredients, availableCookingRecipes, cookingSelectionInsight, cookingSuccessChance, furnitureActionDisabledReason, performFurnitureAction } from '../game/engine/furniture.ts';
 import { addItem, inventoryCount } from '../game/engine/inventory.ts';
 import { createInitialState, rollDanger } from '../game/engine/state.ts';
 import { chooseEvacuation } from '../game/engine/outcomes.ts';
@@ -158,7 +158,7 @@ test('每三次料理提升技能并提高后续成功率', () => {
   assert.ok(cookingSuccessChance(state) > initialChance);
 });
 
-test('储水可以主动饮用，料理池至少包含十二种不同组合', () => {
+test('储水可以主动饮用，三种厨具各有十种不重复组合', () => {
   const state = survivalState('stored-water', 'normal');
   state.shelter.water = 8;
   state.stats.hydration = 40;
@@ -166,16 +166,72 @@ test('储水可以主动饮用，料理池至少包含十二种不同组合', ()
   assert.equal(drank.ok, true);
   assert.equal(drank.state.shelter.water, 4);
   assert.equal(drank.state.stats.hydration, 68);
-  assert.ok(RECIPES.length >= 12);
-  assert.ok(ITEMS.length >= 65);
+  assert.ok(RECIPES.length >= 30);
+  assert.ok(ITEMS.length >= 80);
+  const combinationKeys = new Set<string>();
   for (const appliance of ['gas-stove', 'microwave', 'electric-hotpot'] as const) {
-    assert.ok(RECIPES.filter((recipe) => recipe.appliance === appliance).length >= 4);
+    assert.ok(RECIPES.filter((recipe) => recipe.appliance === appliance).length >= 10);
   }
   for (const recipe of RECIPES) {
+    const combinationKey = `${recipe.appliance}:${Object.entries(recipe.ingredients).sort(([left], [right]) => left.localeCompare(right)).map(([itemId, quantity]) => `${itemId}x${quantity}`).join('+')}`;
+    assert.equal(combinationKeys.has(combinationKey), false, `${recipe.appliance} 存在重复食材组合 ${combinationKey}`);
+    combinationKeys.add(combinationKey);
     assert.ok(ITEM_MAP[recipe.output], `${recipe.id} 缺少料理成品`);
     for (const ingredient of Object.keys(recipe.ingredients)) assert.ok(ITEM_MAP[ingredient], `${recipe.id} 缺少食材 ${ingredient}`);
   }
   assert.equal(availableCookingRecipes(state, 'gas-stove').length, 0);
+});
+
+test('未掌握组合下锅前保持未知，只对即兴组合提示更高失败可能', () => {
+  const state = survivalState('recipe-mystery', 'normal');
+  state.shelter.power = 12;
+  state.shelter.water = 12;
+  state.inventory = addItem({}, ITEM_MAP.oats, 1, 8);
+  state.inventory = addItem(state.inventory, ITEM_MAP['milk-powder'], 1, 8);
+  state.inventory = addItem(state.inventory, ITEM_MAP['canned-beans'], 1, 8);
+
+  const unknown = cookingSelectionInsight(state, 'microwave', ['oats', 'milk-powder']);
+  assert.equal(unknown.status, 'unknown');
+  assert.match(unknown.label, /未知结果/);
+  assert.equal(unknown.label.includes('奶香燕麦糊'), false);
+
+  const risky = cookingSelectionInsight(state, 'microwave', ['canned-beans']);
+  assert.equal(risky.status, 'risky');
+  assert.match(risky.label, /失败可能性较大/);
+  assert.ok((risky.chance ?? 100) < (unknown.chance ?? 0));
+
+  state.shelter.water = 0;
+  const underSuppliedRecipe = cookingSelectionInsight(state, 'microwave', ['oats', 'milk-powder']);
+  assert.equal(underSuppliedRecipe.status, 'risky');
+  assert.match(underSuppliedRecipe.label, /搭配似乎有章法/);
+  assert.match(underSuppliedRecipe.label, /可用水不足/);
+  assert.equal(underSuppliedRecipe.label.includes('奶香燕麦糊'), false);
+
+  state.shelter.water = 12;
+  state.discoveredRecipes.push('milk-oatmeal');
+  const known = cookingSelectionInsight(state, 'microwave', ['oats', 'milk-powder']);
+  assert.equal(known.status, 'known');
+  assert.match(known.label, /奶香燕麦糊/);
+});
+
+test('未知配方失败后不会在料理日志泄露菜名', () => {
+  let checkedFailure = false;
+  for (let index = 0; index < 80 && !checkedFailure; index += 1) {
+    const state = survivalState(`hidden-recipe-failure-${index}`, 'hard');
+    state.shelter.power = 12;
+    state.shelter.water = 12;
+    state.inventory = addItem({}, ITEM_MAP.oats, 1, 8);
+    state.inventory = addItem(state.inventory, ITEM_MAP['milk-powder'], 1, 8);
+    const result = performFurnitureAction(state, 'microwave', ['oats', 'milk-powder']);
+    if (!result.state.discoveredRecipes.includes('milk-oatmeal')) {
+      checkedFailure = true;
+      const log = [...result.state.logs].reverse().find((entry) => entry.title.startsWith('微波炉'));
+      assert.equal(log?.title.includes('奶香燕麦糊'), false);
+      assert.equal(log?.body.includes('奶香燕麦糊'), false);
+      assert.match(log?.body ?? '', /未知组合成功判定/);
+    }
+  }
+  assert.equal(checkedFailure, true);
 });
 
 test('储水不足四单位时仍可逐单位取用，自动配给也不会留下尾水', () => {

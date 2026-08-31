@@ -25,6 +25,8 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
   const currentDay = absoluteDay(state);
   const powerPolicy = POWER_POLICY_MAP[state.powerPolicy];
   const powerBudget = nightPowerBudget(state);
+  const discoveredRecipes = RECIPES.filter((recipe) => state.discoveredRecipes.includes(recipe.id));
+  const undiscoveredRecipeCount = RECIPES.length - discoveredRecipes.length;
   const entries = Object.keys(state.inventory)
     .map((id) => ITEM_MAP[id])
     .filter(Boolean)
@@ -135,11 +137,12 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             })}</div>
           </section>
           <section className="archive-section recipe-archive">
-            <div className="archive-heading"><span className="section-kicker">RECIPE NOTEBOOK</span><h2>配方图鉴</h2><b>{state.discoveredRecipes.length}/{RECIPES.length}</b></div>
-            <div className="archive-list">{RECIPES.map((recipe) => {
-              const discovered = state.discoveredRecipes.includes(recipe.id);
-              return <article key={recipe.id} className={discovered ? 'discovered' : 'locked'}><header><strong>{discovered ? recipe.name : '未发现配方'}</strong><span>{recipe.appliance === 'gas-stove' ? '燃气炉' : recipe.appliance === 'microwave' ? '微波炉' : '电火锅'}</span></header><p>{discovered ? Object.entries(recipe.ingredients).map(([itemId, quantity]) => `${ITEM_MAP[itemId]?.name ?? itemId} ×${quantity}`).join(' + ') : '用自选食材成功做出后，完整组合会记录在这里。'}</p>{discovered && <small>用水 {recipe.water} · 耗能 {recipe.energy} · {recipe.description}</small>}</article>;
-            })}</div>
+            <div className="archive-heading"><span className="section-kicker">RECIPE NOTEBOOK</span><h2>配方图鉴</h2><b>{discoveredRecipes.length}/{RECIPES.length}</b></div>
+            <p className="panel-note">这里只记录已经成功做出的菜。未知组合不会按格子泄露菜名、厨具或所需食材。</p>
+            <div className="archive-list">
+              {discoveredRecipes.map((recipe) => <article key={recipe.id} className="discovered"><header><strong>{recipe.name}</strong><span>{recipe.appliance === 'gas-stove' ? '燃气炉' : recipe.appliance === 'microwave' ? '微波炉' : '电火锅'}</span></header><p>{Object.entries(recipe.ingredients).map(([itemId, quantity]) => `${ITEM_MAP[itemId]?.name ?? itemId} ×${quantity}`).join(' + ')}</p><small>用水 {recipe.water} · 耗能 {recipe.energy} · {recipe.description}</small></article>)}
+              {undiscoveredRecipeCount > 0 && <article className="locked"><header><strong>还有 {undiscoveredRecipeCount} 种未知做法</strong><span>未揭晓</span></header><p>选择手头食材亲自尝试；成功做出后，这一页才会留下完整配方。</p><small>失败不会锁死食材组合，并且仍会增加料理经验。</small></article>}
+            </div>
           </section>
         </div>
       )}

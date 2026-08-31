@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { createInitialState } from '../game/engine/state.ts';
 import { awardOutcome } from '../game/engine/outcomes.ts';
+import { evaluateAchievements } from '../game/engine/achievements.ts';
 import { clearGame, DEFAULT_SETTINGS, loadGame, loadMeta, loadSettings, saveGame, saveMeta, saveSettings } from '../game/engine/save.ts';
 import { formatClock, formatDuration } from '../game/engine/time.ts';
 import type { AbilityId, DifficultyId, GameState, LoanTier, MetaState, SettingsState } from '../game/types.ts';
+import { AchievementGallery } from './AchievementGallery.tsx';
 import { GameView } from './GameView.tsx';
 import { Modal } from './Modal.tsx';
 import { TitleScreen } from './TitleScreen.tsx';
@@ -25,7 +27,7 @@ export default function GameApp() {
   const [screen, setScreen] = useState<'title' | 'game'>('title');
   const [state, setState] = useState<GameState | null>(null);
   const [saved, setSaved] = useState<GameState | null>(null);
-  const [meta, setMeta] = useState<MetaState>({ version: 1, memory: 0, runs: 0, unlocked: [], endings: [], awardedRuns: [] });
+  const [meta, setMeta] = useState<MetaState>({ version: 1, memory: 0, runs: 0, unlocked: [], endings: [], awardedRuns: [], achievements: [] });
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [seed, setSeed] = useState('AFTERLIGHT-001');
   const [difficulty, setDifficulty] = useState<DifficultyId>('easy');
@@ -33,15 +35,22 @@ export default function GameApp() {
   const [loanTier, setLoanTier] = useState<LoanTier>('none');
   const [savedAt, setSavedAt] = useState('--:--');
   const [notice, setNotice] = useState<string | null>(null);
+  const [achievementNotice, setAchievementNotice] = useState<{ id: number; names: string[] } | null>(null);
   const [changeCue, setChangeCue] = useState<{ id: number; money?: string; time?: string } | null>(null);
-  const [modal, setModal] = useState<'guide' | 'settings' | 'restart' | null>(null);
+  const [modal, setModal] = useState<'guide' | 'achievements' | 'settings' | 'restart' | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const loaded = loadGame(window.localStorage);
+      const loadedMeta = loadMeta(window.localStorage);
+      const evaluated = evaluateAchievements(loadedMeta, loaded);
       setSaved(loaded);
       setState(loaded);
-      setMeta(loadMeta(window.localStorage));
+      setMeta(evaluated.meta);
+      if (evaluated.unlocked.length) {
+        saveMeta(window.localStorage, evaluated.meta);
+        setAchievementNotice({ id: Date.now(), names: evaluated.unlocked.map((achievement) => achievement.name) });
+      }
       setSettings(loadSettings(window.localStorage));
       setReady(true);
     }, 0);
@@ -55,6 +64,12 @@ export default function GameApp() {
   }, [notice]);
 
   useEffect(() => {
+    if (!achievementNotice) return;
+    const timer = window.setTimeout(() => setAchievementNotice(null), 4200);
+    return () => window.clearTimeout(timer);
+  }, [achievementNotice]);
+
+  useEffect(() => {
     if (!changeCue) return;
     const timer = window.setTimeout(() => setChangeCue(null), 2400);
     return () => window.clearTimeout(timer);
@@ -62,8 +77,18 @@ export default function GameApp() {
 
   const commit = (next: GameState) => {
     let nextMeta = meta;
+    let metaChanged = false;
     if (next.phase === 'ended' && next.outcome && !meta.awardedRuns.includes(next.runId)) {
       nextMeta = awardOutcome(meta, next);
+      metaChanged = true;
+    }
+    const achievementResult = evaluateAchievements(nextMeta, next);
+    if (achievementResult.unlocked.length) {
+      nextMeta = achievementResult.meta;
+      metaChanged = true;
+      setAchievementNotice({ id: Date.now(), names: achievementResult.unlocked.map((achievement) => achievement.name) });
+    }
+    if (metaChanged) {
       setMeta(nextMeta);
       saveMeta(window.localStorage, nextMeta);
     }
@@ -134,6 +159,7 @@ export default function GameApp() {
           onStart={startRequested}
           onContinue={() => { if (saved) { setState(saved); setScreen('game'); } }}
           onGuide={() => setModal('guide')}
+          onAchievements={() => setModal('achievements')}
           onSettings={() => setModal('settings')}
           onUnlock={unlock}
         />
@@ -152,7 +178,8 @@ export default function GameApp() {
       ) : null}
 
       {notice && <div className="notice-toast" role="status">{notice}</div>}
-      {changeCue && <div className="change-cue" role="status" aria-live="assertive" key={changeCue.id}>{changeCue.money && <strong className={changeCue.money.startsWith('-') ? 'loss' : 'gain'}>{changeCue.money}<small>现金变化</small></strong>}{changeCue.time && <strong className="time">{changeCue.time}<small>时间流逝</small></strong>}</div>}
+      {achievementNotice && <div className="achievement-toast" role="status" aria-live="polite" key={`achievement-${achievementNotice.id}`}><span>成就解锁</span><strong>{achievementNotice.names.join('、')}</strong></div>}
+      {changeCue && <div className="change-cue" role="status" aria-live="assertive" key={`change-${changeCue.id}`}>{changeCue.money && <strong className={changeCue.money.startsWith('-') ? 'loss' : 'gain'}>{changeCue.money}<small>现金变化</small></strong>}{changeCue.time && <strong className="time">{changeCue.time}<small>时间流逝</small></strong>}</div>}
 
       {modal === 'guide' && (
         <Modal title="如何在停电以后活下去" onClose={() => setModal(null)} footer={<button className="primary-inline" onClick={() => setModal(null)} type="button">明白了</button>}>
@@ -166,7 +193,7 @@ export default function GameApp() {
       )}
 
       {modal === 'settings' && (
-        <Modal title="阅读与操作设置" onClose={() => setModal(null)} footer={<button className="primary-inline" onClick={() => setModal(null)} type="button">保存并关闭</button>}>
+        <Modal title="阅读与操作设置" onClose={() => setModal(null)} footer={<><button onClick={() => setModal('achievements')} type="button">查看成就档案</button><button className="primary-inline" onClick={() => setModal(null)} type="button">保存并关闭</button></>}>
           <div className="settings-list">
             <label><span><strong>夜间自动补充食物与饮水</strong><small>{screen === 'game' ? '立即应用于当前轮；关闭后请白天手动使用物资' : '应用于下一轮；简易默认开启，标准与艰难默认关闭'}</small></span><input type="checkbox" checked={screen === 'game' && state ? state.autoRations : autoRations} onChange={(event) => { if (screen === 'game' && state) commit({ ...state, autoRations: event.target.checked }); else setAutoRations(event.target.checked); }} /></label>
             <label><span><strong>数字键快捷操作</strong><small>按 1—9 选择底部对应选项</small></span><input type="checkbox" checked={settings.shortcuts} onChange={(event) => updateSettings({ shortcuts: event.target.checked })} /></label>
@@ -175,6 +202,12 @@ export default function GameApp() {
             <label><span><strong>显示新手提示</strong><small>新开一轮时显示系列玩法提示</small></span><input type="checkbox" checked={settings.tutorial} onChange={(event) => updateSettings({ tutorial: event.target.checked })} /></label>
             <label className="select-setting"><span><strong>正文字号</strong><small>只影响游戏正文与记录</small></span><select value={settings.fontScale} onChange={(event) => updateSettings({ fontScale: event.target.value as SettingsState['fontScale'] })}><option value="small">紧凑</option><option value="normal">标准</option><option value="large">较大</option></select></label>
           </div>
+        </Modal>
+      )}
+
+      {modal === 'achievements' && (
+        <Modal title="跨轮回成就档案" onClose={() => setModal(null)} footer={<button className="primary-inline" onClick={() => setModal(null)} type="button">关闭档案</button>}>
+          <AchievementGallery meta={meta} state={state ?? saved} />
         </Modal>
       )}
 

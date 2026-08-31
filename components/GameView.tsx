@@ -12,7 +12,6 @@ import { LOAN_MAP } from '../game/data/loans.ts';
 import { DEEP_LOCATIONS, deepScene } from '../game/data/deep-exploration.ts';
 import { POWER_POLICIES } from '../game/data/power.ts';
 import { powerTrapDefinition } from '../game/data/power-traps.ts';
-import { RECIPES_BY_APPLIANCE } from '../game/data/recipes.ts';
 import { activeContactLimit, survivalPressure } from '../game/data/pressure.ts';
 import {
   availableStoreItems,
@@ -32,7 +31,7 @@ import {
   visitStore,
   type PrepActionId,
 } from '../game/engine/actions.ts';
-import { availableCookingIngredients, cookingPreview, FURNITURE_ACTION_MINUTES, furnitureActionDisabledReason, performFurnitureAction, selectedCookingDisabledReason, type FurnitureActionId } from '../game/engine/furniture.ts';
+import { availableCookingIngredients, cookingPreview, cookingSelectionInsight, FURNITURE_ACTION_MINUTES, furnitureActionDisabledReason, performFurnitureAction, selectedCookingDisabledReason, type FurnitureActionId } from '../game/engine/furniture.ts';
 import { inventoryCount } from '../game/engine/inventory.ts';
 import { isNpcUnlocked } from '../game/engine/npcs.ts';
 import { debtRiskBonus } from '../game/engine/loan.ts';
@@ -327,7 +326,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         return {
           id,
           label,
-          hint: `${formatDuration(FURNITURE_ACTION_MINUTES[id])} · 完整配方 ${preview.recipes} 种 / 可投入食材 ${preview.ingredients} 种 · 配方 ${preview.chance}% / 即兴 ${preview.improvisationChance}% · 缺配料也能开火`,
+          hint: `${formatDuration(FURNITURE_ACTION_MINUTES[id])} · 可投入食材 ${preview.ingredients} 种 · 熟练操作 ${preview.chance}% / 即兴约 ${preview.improvisationChance}% · 未掌握的组合下锅前保持未知`,
           disabledReason: furnitureActionDisabledReason(state, id),
           onSelect: () => { setCookingAppliance(id); setSelectedIngredients([]); },
         };
@@ -562,7 +561,13 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
               <span className="story-time">{expeditionLocation.name.toUpperCase()} / {formatClock(state.clockMinutes)}</span>
               <h2>{selectedTarget?.name ?? expeditionScene.name}</h2>
               <p>{selectedTarget?.observation ?? expeditionScene.text}</p>
-              <span className="chain-tag">已发现 {state.expedition.discoveredScenes.length}/{expeditionLocation.scenes.length} 区域 · 本次所得 {state.expedition.gathered.length} 类</span>
+              <section className="expedition-loot" aria-label="本次外出所得" aria-live="polite">
+                <header><strong>本次外出所得</strong><span>{state.expedition.gathered.length} 类</span></header>
+                {state.expedition.gathered.length > 0
+                  ? <ul>{state.expedition.gathered.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ul>
+                  : <p>尚未带上新物资；处理货柜或容器后，所得会立即出现在这里。</p>}
+              </section>
+              <span className="chain-tag">已发现 {state.expedition.discoveredScenes.length}/{expeditionLocation.scenes.length} 区域</span>
             </article>
           ) : event ? (
             <article className="current-story" tabIndex={-1}>
@@ -594,7 +599,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           <section className="log-section" aria-labelledby="log-title">
             <div className="section-heading"><span className="section-kicker">SURVIVAL LOG</span><h2 id="log-title">生存记录</h2></div>
             <div className="log-list">
-              {[...state.logs].reverse().slice(0, 12).map((log, index) => (
+              {[...state.logs].reverse().filter((log) => log.title !== '白天配给消耗').slice(0, 12).map((log, index) => (
                 <article className={`log-entry tone-${log.tone} ${index === 0 ? 'latest' : ''}`} key={log.id}>
                   <div><span>{log.dayLabel}</span><h3>{log.title}</h3></div>
                   <p>{log.body}</p>
@@ -785,18 +790,14 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         const applianceName = cookingAppliance === 'gas-stove' ? '燃气炉' : cookingAppliance === 'microwave' ? '微波炉' : '电火锅';
         const ingredients = availableCookingIngredients(state);
         const selectedSet = new Set(selectedIngredients);
-        const exactRecipe = RECIPES_BY_APPLIANCE[cookingAppliance].find((recipe) => {
-          const required = Object.entries(recipe.ingredients).flatMap(([itemId, quantity]) => Array(quantity).fill(itemId)).sort();
-          const selected = [...selectedIngredients].sort();
-          return required.length === selected.length && required.every((itemId, index) => itemId === selected[index]);
-        });
+        const insight = cookingSelectionInsight(state, cookingAppliance, selectedIngredients);
         const disabled = selectedCookingDisabledReason(state, cookingAppliance, selectedIngredients);
         return (
           <Modal title={`${applianceName} · 自选食材`} onClose={() => { setCookingAppliance(null); setSelectedIngredients([]); }} footer={<button className="primary-inline" type="button" disabled={Boolean(disabled)} title={disabled ?? undefined} onClick={() => run(performFurnitureAction(state, cookingAppliance, selectedIngredients))}>{disabled ?? `开始烹饪 · ${selectedIngredients.length} 种食材`}</button>}>
-            <p className="store-description">逐项选择这次真正投入锅里的食材。完全吻合的组合会尝试对应配方；其他组合也能开火，但可能成为临时杂烩或失败料理。</p>
-            <div className="cooking-selection-summary">
+            <p className="store-description">逐项选择这次真正投入锅里的食材。未成功做过的组合不会提前显示菜名；凭搭配直觉和风险提示决定是否开火，失败也会积累料理经验。</p>
+            <div className={`cooking-selection-summary insight-${insight.status}`} aria-live="polite">
               <span>已选 <b>{selectedIngredients.length}</b> 种</span>
-              <span>{exactRecipe ? `识别为：${exactRecipe.name}` : selectedIngredients.length ? '未识别配方 · 将即兴处理' : '等待选择食材'}</span>
+              <span>{insight.label}</span>
             </div>
             <div className="ingredient-grid">
               {ingredients.map((item) => (

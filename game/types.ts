@@ -302,6 +302,23 @@ export interface GameState {
 
 export type AbilityId = 'packer' | 'map' | 'steady';
 
+export type AchievementId =
+  | 'first-night'
+  | 'district-scout'
+  | 'city-cartographer'
+  | 'field-specialist'
+  | 'first-recipe'
+  | 'seasoned-cook'
+  | 'recipe-collector'
+  | 'first-alliance'
+  | 'full-coalition'
+  | 'live-wire'
+  | 'hard-survivor'
+  | 'ending-death'
+  | 'ending-survivor'
+  | 'ending-truth'
+  | 'ending-collection';
+
 export interface MetaState {
   version: 1;
   memory: number;
@@ -309,6 +326,7 @@ export interface MetaState {
   unlocked: AbilityId[];
   endings: OutcomeId[];
   awardedRuns: string[];
+  achievements: AchievementId[];
 }
 
 export interface SettingsState {

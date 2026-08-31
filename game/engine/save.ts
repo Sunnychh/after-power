@@ -3,8 +3,9 @@ import { DEEP_LOCATIONS } from '../data/deep-exploration.ts';
 import { ITEM_MAP } from '../data/items.ts';
 import { EVENT_MAP } from '../data/events.ts';
 import { DAILY_COMMISSION_MAP } from '../data/commissions.ts';
+import { ACHIEVEMENT_MAP } from '../data/achievements.ts';
 import { NPCS } from '../data/world.ts';
-import type { GameState, MetaState, Outcome, SettingsState, StorageLike } from '../types.ts';
+import type { AchievementId, GameState, MetaState, Outcome, SettingsState, StorageLike } from '../types.ts';
 import { expireItems } from './inventory.ts';
 import { ensureAssignedDailyWish } from './daily.ts';
 import { foodFamily } from './nutrition.ts';
@@ -355,11 +356,18 @@ export function saveMeta(storage: StorageLike, meta: MetaState): void {
 }
 
 export function loadMeta(storage: StorageLike): MetaState {
-  const meta = safeParse<MetaState>(storage.getItem(META_SAVE_KEY));
+  type StoredMeta = Omit<MetaState, 'achievements'> & { achievements?: string[] };
+  const meta = safeParse<StoredMeta>(storage.getItem(META_SAVE_KEY));
   if (!meta || meta.version !== 1 || !Array.isArray(meta.unlocked) || !Array.isArray(meta.endings)) {
     return structuredClone(DEFAULT_META);
   }
-  return { ...meta, awardedRuns: Array.isArray(meta.awardedRuns) ? meta.awardedRuns : [] };
+  return {
+    ...meta,
+    awardedRuns: Array.isArray(meta.awardedRuns) ? meta.awardedRuns : [],
+    achievements: Array.isArray(meta.achievements)
+      ? [...new Set(meta.achievements.filter((id): id is AchievementId => typeof id === 'string' && Object.hasOwn(ACHIEVEMENT_MAP, id)))]
+      : [],
+  };
 }
 
 export function saveSettings(storage: StorageLike, settings: SettingsState): void {

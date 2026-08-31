@@ -292,7 +292,7 @@ test('清除本轮不影响轮回记忆', () => {
   const storage = new MemoryStorage();
   const state = createInitialState('clear');
   saveGame(storage, state);
-  const meta = { version: 1 as const, memory: 4, runs: 1, unlocked: ['packer' as const], endings: ['death' as const], awardedRuns: ['run-x'] };
+  const meta = { version: 1 as const, memory: 4, runs: 1, unlocked: ['packer' as const], endings: ['death' as const], awardedRuns: ['run-x'], achievements: ['ending-death' as const] };
   saveMeta(storage, meta);
   clearGame(storage);
   assert.equal(loadGame(storage), null);

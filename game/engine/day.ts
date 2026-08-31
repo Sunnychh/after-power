@@ -53,14 +53,6 @@ export function completeTimedAction(state: GameState, durationMinutes: number, a
       const waterDelta = next.stats.hydration - hydrationBefore;
       if (foodDelta) next.feedback.push({ id: `${next.runId}-activity-food-${next.logs.length}-${next.clockMinutes}`, label: '饱腹', delta: foodDelta, reason: `${twoHourBlocks * 2}小时行动消耗` });
       if (waterDelta) next.feedback.push({ id: `${next.runId}-activity-water-${next.logs.length}-${next.clockMinutes}`, label: '水分', delta: waterDelta, reason: `${twoHourBlocks * 2}小时行动消耗` });
-      if (foodDelta || waterDelta) {
-        next.logs.push(createLog(
-          next,
-          '白天配给消耗',
-          `游戏时钟跨过 ${twoHourBlocks} 个两小时结算点：饱腹 ${foodDelta}，水分 ${waterDelta}。休息能恢复体力，但经过的时间仍需要食物和饮水。`,
-          'system',
-        ));
-      }
     }
   }
   next.clockMinutes += durationMinutes;

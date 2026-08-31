@@ -51,6 +51,7 @@ export function ActionPanel({ title, subtitle, choices, shortcuts }: {
               aria-disabled={disabled}
               aria-label={fullText}
               title={fullText}
+              data-full-text={fullText}
               data-choice={index + 1}
               onClick={() => !disabled && choice.onSelect()}
             >

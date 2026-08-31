@@ -93,12 +93,14 @@ export function deepOptionDisabledReason(state: GameState, targetId: string, opt
   for (const [itemId, quantity] of Object.entries(option.consumes ?? {})) {
     if (inventoryCount(state.inventory, itemId) < quantity) return `缺少 ${ITEM_MAP[itemId]?.name ?? itemId} ×${quantity}`;
   }
-  const storyLoot = Object.entries(option.loot ?? {}).filter(([itemId]) => ITEM_MAP[itemId]?.story && inventoryCount(state.inventory, itemId) === 0);
-  if (storyLoot.length) {
+  const reservedLoot = Object.entries(option.loot ?? {}).filter(([itemId]) => (
+    ITEM_MAP[itemId]?.story || option.guaranteedLoot?.includes(itemId)
+  ) && inventoryCount(state.inventory, itemId) === 0);
+  if (reservedLoot.length) {
     const freedWeight = Object.entries(option.consumes ?? {}).reduce((sum, [itemId, quantity]) => sum + (ITEM_MAP[itemId]?.weight ?? 0) * quantity, 0);
-    const storyWeight = storyLoot.reduce((sum, [itemId, quantity]) => sum + (ITEM_MAP[itemId]?.weight ?? 0) * quantity, 0);
-    if (inventoryWeight(state.inventory, ITEM_MAP) - freedWeight + storyWeight > state.carryCapacity + 0.0001) {
-      return `需要为剧情物品预留 ${storyWeight.toFixed(2)}kg；先回避难所整理物资，这个目标不会消失`;
+    const reservedWeight = reservedLoot.reduce((sum, [itemId, quantity]) => sum + (ITEM_MAP[itemId]?.weight ?? 0) * quantity, 0);
+    if (inventoryWeight(state.inventory, ITEM_MAP) - freedWeight + reservedWeight > state.carryCapacity + 0.0001) {
+      return `需要为关键物品预留 ${reservedWeight.toFixed(2)}kg；先回避难所整理物资，这个目标不会消失`;
     }
   }
   if (state.stats.stamina <= option.stamina) return `体力不足（需要高于 ${option.stamina}）`;
@@ -165,14 +167,16 @@ export function adjustedDeepLoot(
   state: Pick<GameState, 'difficulty' | 'seed'> & Partial<Pick<GameState, 'survivalDay' | 'visited'>>,
   loot: Record<string, number> | undefined,
   targetKey: string,
+  guaranteedLoot: readonly string[] = [],
 ): Record<string, number> {
   const source = loot ?? {};
   if (state.difficulty === 'easy') return { ...source };
 
   const result: Record<string, number> = {};
+  const guaranteed = new Set(guaranteedLoot);
   const regularUnits: string[] = [];
   for (const [itemId, quantity] of Object.entries(source).sort(([a], [b]) => a.localeCompare(b))) {
-    if (ITEM_MAP[itemId]?.story) result[itemId] = quantity;
+    if (ITEM_MAP[itemId]?.story || guaranteed.has(itemId)) result[itemId] = quantity;
     else for (let index = 0; index < quantity; index += 1) regularUnits.push(itemId);
   }
   if (!regularUnits.length) return result;
@@ -197,16 +201,25 @@ export function adjustedDeepLoot(
   return result;
 }
 
-function collectLoot(state: GameState, loot: Record<string, number> | undefined, targetKey: string): { found: string[]; left: string[]; scarce: string[] } {
+function collectLoot(state: GameState, option: DeepTargetOption, targetKey: string): { found: string[]; left: string[]; scarce: string[] } {
   const found: string[] = [];
   const left: string[] = [];
   const scarce: string[] = [];
-  const adjusted = adjustedDeepLoot(state, loot, targetKey);
-  for (const [itemId, quantity] of Object.entries(loot ?? {})) {
+  const adjusted = adjustedDeepLoot(state, option.loot, targetKey, option.guaranteedLoot);
+  const guaranteed = new Set(option.guaranteedLoot ?? []);
+  for (const [itemId, quantity] of Object.entries(option.loot ?? {})) {
     const remaining = quantity - (adjusted[itemId] ?? 0);
     if (remaining > 0 && !ITEM_MAP[itemId]?.story) scarce.push(`${ITEM_MAP[itemId]?.name ?? itemId} ×${remaining}`);
   }
-  for (const [itemId, quantity] of Object.entries(adjusted)) {
+  // Put route-opening and one-off story loot into the bag first. The capacity
+  // preflight reserves their weight, so ordinary loot must never consume that
+  // reservation and permanently resolve the target before the key item lands.
+  const orderedLoot = Object.entries(adjusted).sort(([leftId], [rightId]) => {
+    const leftReserved = ITEM_MAP[leftId]?.story || guaranteed.has(leftId) ? 1 : 0;
+    const rightReserved = ITEM_MAP[rightId]?.story || guaranteed.has(rightId) ? 1 : 0;
+    return rightReserved - leftReserved;
+  });
+  for (const [itemId, quantity] of orderedLoot) {
     const item = ITEM_MAP[itemId];
     if (!item) continue;
     if (item.story && inventoryCount(state.inventory, itemId) > 0) continue;
@@ -256,7 +269,7 @@ export function resolveDeepTarget(state: GameState, targetId: string, optionId: 
       tone = 'bad';
     }
   }
-  const loot = collectLoot(next, option.loot, `${location.id}:${target.id}:${option.id}`);
+  const loot = collectLoot(next, option, `${location.id}:${target.id}:${option.id}`);
   const skillText = Object.entries(option.skillXp ?? {}).map(([skill, amount]) => gainSkill(next, skill as ExplorationSkillId, amount ?? 0)).join('');
   for (const flag of option.addFlags ?? []) addFlag(next, flag);
   addFlag(next, deepTargetCompletionFlag(location.id, target, next.survivalDay));
@@ -285,9 +298,19 @@ export function leaveDeepExplore(state: GameState): EngineResult {
   next.feedback = [];
   const gathered = [...next.expedition!.gathered];
   const discovered = next.expedition!.discoveredScenes.length;
+  const gatheredFeedback = gathered.map((entry, index) => {
+    const quantityMatch = entry.match(/ ×(\d+)$/);
+    return {
+      id: `${next.runId}-expedition-summary-${next.logs.length}-${index}`,
+      label: quantityMatch ? entry.slice(0, quantityMatch.index) : entry,
+      delta: quantityMatch ? Number(quantityMatch[1]) : 1,
+      reason: '本次外出带回',
+    };
+  });
   next.expedition = undefined;
   next.visited[location.id] = (next.visited[location.id] ?? 0) + 1;
   next = applyEffect(next, { stats: { stamina: -3 } }, '返程');
+  next.feedback.push(...gatheredFeedback);
   next.logs.push(createLog(next, `返回 · ${location.name}`, `你沿原路回到避难所。本次进入 ${discovered}/${location.scenes.length} 个区域；${gathered.length ? `带回 ${gathered.join('、')}` : '没有带回新物资'}。尚未处理的目标今天仍会保留；普通搜刮点会在下一封锁日刷新，剧情目标永久记录。`, 'good'));
   return completeTimedAction(next, location.returnMinutes, 'survival:explore');
 }

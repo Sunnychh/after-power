@@ -180,6 +180,10 @@ test('深入地点配置的连接、物品、效果和方法引用全部有效',
           for (const requirement of option.requirements ?? []) if (requirement.item) assert.ok(ITEM_MAP[requirement.item], `未知需求物品 ${requirement.item}`);
           for (const itemId of Object.keys(option.consumes ?? {})) assert.ok(ITEM_MAP[itemId], `未知消耗物品 ${itemId}`);
           for (const itemId of Object.keys(option.loot ?? {})) assert.ok(ITEM_MAP[itemId], `未知战利品 ${itemId}`);
+          for (const itemId of option.guaranteedLoot ?? []) {
+            assert.ok(ITEM_MAP[itemId], `未知关键战利品 ${itemId}`);
+            assert.ok((option.loot?.[itemId] ?? 0) > 0, `关键战利品 ${itemId} 没有出现在该选项的实际掉落中`);
+          }
           for (const itemId of Object.keys(option.effects?.inventory ?? {})) assert.ok(ITEM_MAP[itemId], `未知效果物品 ${itemId}`);
         }
       }
@@ -199,8 +203,8 @@ test('困难细化地图按种子削减普通战利品但完整保留剧情物�
       for (const target of scene.targets) {
         for (const option of target.options) {
           const key = `${location.id}:${target.id}:${option.id}`;
-          const normalLoot = adjustedDeepLoot(normal, option.loot, key);
-          const hardLoot = adjustedDeepLoot(hard, option.loot, key);
+          const normalLoot = adjustedDeepLoot(normal, option.loot, key, option.guaranteedLoot);
+          const hardLoot = adjustedDeepLoot(hard, option.loot, key, option.guaranteedLoot);
           for (const [itemId, quantity] of Object.entries(normalLoot)) {
             if (ITEM_MAP[itemId].story) normalStory += quantity;
             else normalRegular += quantity;
@@ -233,8 +237,8 @@ test('困难地图刷新量随封锁日递减，后期单件货格可能为空',
           const key = `${location.id}:${target.id}:${option.id}`;
           const early = { ...createInitialState('deep-refresh-curve', [], 0, 'hard'), survivalDay: 2 };
           const late = { ...createInitialState('deep-refresh-curve', [], 0, 'hard'), survivalDay: 12 };
-          earlyTotal += Object.entries(adjustedDeepLoot(early, option.loot, key)).filter(([itemId]) => !ITEM_MAP[itemId].story).reduce((sum, [, quantity]) => sum + quantity, 0);
-          lateTotal += Object.entries(adjustedDeepLoot(late, option.loot, key)).filter(([itemId]) => !ITEM_MAP[itemId].story).reduce((sum, [, quantity]) => sum + quantity, 0);
+          earlyTotal += Object.entries(adjustedDeepLoot(early, option.loot, key, option.guaranteedLoot)).filter(([itemId]) => !ITEM_MAP[itemId].story).reduce((sum, [, quantity]) => sum + quantity, 0);
+          lateTotal += Object.entries(adjustedDeepLoot(late, option.loot, key, option.guaranteedLoot)).filter(([itemId]) => !ITEM_MAP[itemId].story).reduce((sum, [, quantity]) => sum + quantity, 0);
         }
       }
     }

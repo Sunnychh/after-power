@@ -10,6 +10,12 @@ import { timeDisabledReason } from './time.ts';
 
 export type FurnitureActionId = CookingApplianceId;
 
+export interface CookingSelectionInsight {
+  status: 'empty' | 'known' | 'unknown' | 'risky';
+  label: string;
+  chance?: number;
+}
+
 export const FURNITURE_ACTION_MINUTES: Record<FurnitureActionId, number> = {
   'gas-stove': 75,
   microwave: 30,
@@ -34,6 +40,16 @@ function hasRecipeWater(state: GameState, recipe: CookingRecipe): boolean {
 
 function hasRecipeIngredients(state: GameState, recipe: CookingRecipe): boolean {
   return Object.entries(recipe.ingredients).every(([itemId, quantity]) => inventoryCount(state.inventory, itemId) >= quantity);
+}
+
+function matchesSelectedIngredients(recipe: CookingRecipe, selectedIngredientIds: string[]): boolean {
+  const required = Object.entries(recipe.ingredients).flatMap(([itemId, quantity]) => Array(quantity).fill(itemId)).sort();
+  const selected = [...selectedIngredientIds].sort();
+  return required.length === selected.length && required.every((itemId, index) => itemId === selected[index]);
+}
+
+function selectedRecipeDefinition(action: FurnitureActionId, selectedIngredientIds: string[]): CookingRecipe | undefined {
+  return RECIPES_BY_APPLIANCE[action].find((candidate) => matchesSelectedIngredients(candidate, selectedIngredientIds));
 }
 
 export function availableCookingRecipes(state: GameState, action: FurnitureActionId): CookingRecipe[] {
@@ -72,6 +88,37 @@ export function cookingPreview(state: GameState, action: FurnitureActionId): { r
     skill: state.cookingSkill,
     attemptsToNext: state.cookingSkill >= 5 ? 0 : 3 - (state.cookingAttempts % 3),
   };
+}
+
+/**
+ * Gives the player a useful risk read without leaking an undiscovered recipe.
+ * Only recipes already cooked successfully are named; every other selection remains unknown.
+ */
+export function cookingSelectionInsight(state: GameState, action: FurnitureActionId, ingredientIds: string[]): CookingSelectionInsight {
+  if (!ingredientIds.length) return { status: 'empty', label: '等待选择食材' };
+  const chance = cookingSuccessChance(state);
+  const recipe = selectedRecipeDefinition(action, ingredientIds);
+  if (!recipe) {
+    const improvisationChance = clamp(chance - 22 + Math.max(0, ingredientIds.length - 1) * 3, 20, 80);
+    return { status: 'risky', label: `未知结果 · 失败可能性较大（即兴成功约 ${improvisationChance}%）`, chance: improvisationChance };
+  }
+  const hasEnergy = action === 'gas-stove' ? state.shelter.fuel >= recipe.energy : state.shelter.power >= recipe.energy;
+  const hasWater = hasRecipeWater(state, recipe);
+  if (!hasEnergy || !hasWater) {
+    const improvisationChance = clamp(chance - 22 + Math.max(0, ingredientIds.length - 1) * 3, 20, 80);
+    const shortages = [
+      !hasEnergy ? `${action === 'gas-stove' ? '燃料' : '电力'}不足完整火候` : '',
+      !hasWater ? '可用水不足完整做法' : '',
+    ].filter(Boolean).join('、');
+    if (state.discoveredRecipes.includes(recipe.id)) {
+      return { status: 'known', label: `已掌握 · ${recipe.name}；${shortages}，本次只能即兴尝试（成功约 ${improvisationChance}%）`, chance: improvisationChance };
+    }
+    return { status: 'risky', label: `未知结果 · 搭配似乎有章法，但${shortages}，失败可能性较大（即兴成功约 ${improvisationChance}%）`, chance: improvisationChance };
+  }
+  if (state.discoveredRecipes.includes(recipe.id)) {
+    return { status: 'known', label: `已掌握 · ${recipe.name}（成功约 ${chance}%）`, chance };
+  }
+  return { status: 'unknown', label: `未知结果 · 搭配看起来有些章法（成功约 ${chance}%）`, chance };
 }
 
 function energyDisabledReason(state: GameState, action: FurnitureActionId): string | null {
@@ -122,10 +169,7 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
   const richestIngredientCount = Math.max(0, ...completeRecipes.map((recipe) => Object.values(recipe.ingredients).reduce((sum, quantity) => sum + quantity, 0)));
   const preferredRecipes = completeRecipes.filter((recipe) => Object.values(recipe.ingredients).reduce((sum, quantity) => sum + quantity, 0) === richestIngredientCount);
   const selected = selectedIngredientIds ? [...selectedIngredientIds].sort() : undefined;
-  const selectedRecipe = selected ? completeRecipes.find((candidate) => {
-    const required = Object.entries(candidate.ingredients).flatMap(([itemId, quantity]) => Array(quantity).fill(itemId)).sort();
-    return required.length === selected.length && required.every((itemId, index) => itemId === selected[index]);
-  }) : undefined;
+  const selectedRecipe = selected ? completeRecipes.find((candidate) => matchesSelectedIngredients(candidate, selected)) : undefined;
   const recipePick = !selected && preferredRecipes.length ? seededPick(next.rngState, preferredRecipes) : undefined;
   if (recipePick) next.rngState = recipePick.state;
   const recipe = selectedRecipe ?? recipePick?.value;
@@ -165,6 +209,7 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
     stats: success ? { morale: 3 } : FAILED_COOKING_EFFECT,
   }, reason);
 
+  const recipeWasKnown = Boolean(recipe && state.discoveredRecipes.includes(recipe.id));
   const previousSkill = next.cookingSkill;
   next.cookingAttempts += 1;
   next.cookingSkill = Math.min(5, Math.floor(next.cookingAttempts / 3));
@@ -180,16 +225,22 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
   const applianceName = action === 'gas-stove' ? '燃气炉' : action === 'microwave' ? '微波炉' : '电火锅';
   const waterText = !recipe ? '没有凑齐完整配方，也没有强制补水' : recipe.water === 0 ? '这道料理不需要额外用水' : useStoredWater ? `使用储水 ${recipe.water}` : `使用瓶装水 ×${waterBottles}`;
   const skillText = next.cookingSkill > previousSkill ? `反复尝试让你的料理技能提升到 ${next.cookingSkill} 级。` : '';
-  const ingredientNames = improvisedIngredients.map((ingredient) => ingredient.name).join('、');
-  const cookingName = recipe ? recipe.name : `${ingredientNames} · 即兴处理`;
-  const cookingDescription = recipe?.description ?? `你把${ingredientNames}放在一起，没有现成配方，也决定照自己的判断开火。`;
+  const usedIngredientIds = recipe
+    ? Object.entries(recipe.ingredients).flatMap(([itemId, quantity]) => Array(quantity).fill(itemId))
+    : improvisedIngredients.map((ingredient) => ingredient.id);
+  const ingredientNames = usedIngredientIds.map((itemId) => ITEM_MAP[itemId]?.name ?? itemId).join('、');
+  const revealRecipe = Boolean(recipe && (success || recipeWasKnown));
+  const cookingName = revealRecipe && recipe ? recipe.name : `${ingredientNames} · ${recipe ? '未知组合' : '即兴处理'}`;
+  const cookingDescription = revealRecipe && recipe
+    ? recipe.description
+    : `你把${ingredientNames}放在一起，没有可以照抄的记录，只能凭气味、火候和经验判断。`;
   const resultText = success
     ? `完成${ITEM_MAP[output].name}，成品已放入背包，可自行决定何时食用。`
     : improvisedDumplings ? '锅里没有水，水饺很快粘底裂开，只得到一份糊底水饺。' : '搭配和火候都不理想，只得到一份勉强能吃的失败料理。';
   next.logs = [...next.logs, createLog(
     next,
     `${applianceName} · ${success ? cookingName : '料理失手'}`,
-    `${cookingDescription}${waterText}。${recipe ? '配方' : '即兴'}成功判定 ${roll.value}/${chance}：${resultText}${recipe && success ? `“${recipe.name}”已写入配方图鉴。` : ''}当前料理技能 ${next.cookingSkill} 级，累计尝试 ${next.cookingAttempts} 次。${skillText}`,
+    `${cookingDescription}${waterText}。${revealRecipe ? '已掌握做法' : recipe ? '未知组合' : '即兴'}成功判定 ${roll.value}/${chance}：${resultText}${recipe && success ? `“${recipe.name}”已写入配方图鉴。` : ''}当前料理技能 ${next.cookingSkill} 级，累计尝试 ${next.cookingAttempts} 次。${skillText}`,
     success ? 'good' : 'bad',
   )];
   return completeTimedAction(next, FURNITURE_ACTION_MINUTES[action], `furniture:${action}`);

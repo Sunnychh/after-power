@@ -3,9 +3,10 @@
 import { ABILITIES } from '../game/data/world.ts';
 import { DIFFICULTIES } from '../game/data/difficulties.ts';
 import { LOANS } from '../game/data/loans.ts';
+import { ACHIEVEMENTS } from '../game/data/achievements.ts';
 import type { AbilityId, DifficultyId, LoanTier, MetaState } from '../game/types.ts';
 
-export function TitleScreen({ hasSave, seed, difficulty, autoRations, loanTier, meta, onSeedChange, onDifficultyChange, onAutoRationsChange, onLoanTierChange, onStart, onContinue, onGuide, onSettings, onUnlock }: {
+export function TitleScreen({ hasSave, seed, difficulty, autoRations, loanTier, meta, onSeedChange, onDifficultyChange, onAutoRationsChange, onLoanTierChange, onStart, onContinue, onGuide, onAchievements, onSettings, onUnlock }: {
   hasSave: boolean;
   seed: string;
   difficulty: DifficultyId;
@@ -19,6 +20,7 @@ export function TitleScreen({ hasSave, seed, difficulty, autoRations, loanTier, 
   onStart: () => void;
   onContinue: () => void;
   onGuide: () => void;
+  onAchievements: () => void;
   onSettings: () => void;
   onUnlock: (ability: AbilityId, cost: number) => void;
 }) {
@@ -84,6 +86,7 @@ export function TitleScreen({ hasSave, seed, difficulty, autoRations, loanTier, 
         <div className="title-links" aria-label="辅助选项">
           <button type="button" disabled={!hasSave} onClick={onContinue}>继续游戏{!hasSave ? ' · 无存档' : ''}</button>
           <button type="button" onClick={onGuide}>如何生存</button>
+          <button type="button" onClick={onAchievements}>成就档案 · {meta.achievements.length}/{ACHIEVEMENTS.length}</button>
           <button type="button" onClick={onSettings}>设置</button>
         </div>
 

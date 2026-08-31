@@ -32,7 +32,7 @@ export const LEGACY_GAME_SAVE_KEY = 'after-power-game-v1';
 export const META_SAVE_KEY = 'after-power-meta-v1';
 export const SETTINGS_KEY = 'after-power-settings-v1';
 
-export const DEFAULT_META: MetaState = { version: 1, memory: 0, runs: 0, unlocked: [], endings: [], awardedRuns: [] };
+export const DEFAULT_META: MetaState = { version: 1, memory: 0, runs: 0, unlocked: [], endings: [], awardedRuns: [], achievements: [] };
 
 export function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, value));

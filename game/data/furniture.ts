@@ -24,9 +24,9 @@ export const FURNITURE: FurnitureDefinition[] = [
     id: 'gas-stove',
     name: '燃气炉',
     source: '公寓自带',
-    description: '从当前食材中随机选择可做的炖煮或烙制料理。',
+    description: '自行选择食材，尝试炖煮、焖饭或烙制料理。',
     cost: '燃料 2—3 · 1小时15分',
-    benefit: '4 种配方 · 可优先使用储水',
+    benefit: '10 种配方 · 可优先使用储水',
   },
   {
     id: 'microwave',
@@ -34,15 +34,15 @@ export const FURNITURE: FurnitureDefinition[] = [
     source: '公寓自带',
     description: '最快且较稳定，适合燕麦、蛋粉和罐头组合。',
     cost: '电力 -2 · 30分钟',
-    benefit: '4 种配方 · 练习成本较低',
+    benefit: '10 种配方 · 练习成本较低',
   },
   {
     id: 'electric-hotpot',
     name: '电火锅',
     source: '公寓自带',
-    description: '用较多食材和水随机组合一锅恢复全面的热食。',
+    description: '自行选择食材，用较多水煮出恢复全面的热食。',
     cost: '电力 3—4 · 1小时30分',
-    benefit: '4 种配方 · 高收益也更耗储备',
+    benefit: '10 种配方 · 高收益也更耗储备',
   },
 ];
 
