@@ -50,8 +50,10 @@ import { activeContactDisabledReason, contactCostText, contactOptions, contactsR
 import { entertainmentDisabledReason, performEntertainment } from '../game/engine/entertainment.ts';
 import { survivalNeedAlert } from '../game/engine/needs.ts';
 import { radioUseDisabledReason, radioUseMethod } from '../game/engine/radio.ts';
+import { summarizeDeepMap } from '../game/engine/deep-map.ts';
 import type { GameState, SettingsState, StoreId } from '../game/types.ts';
 import { ActionPanel, type ActionChoice } from './ActionPanel.tsx';
+import { DeepMap } from './DeepMap.tsx';
 import { InventoryPanel } from './InventoryPanel.tsx';
 import { Modal } from './Modal.tsx';
 import { StatusBar, StatusDock } from './StatusBar.tsx';
@@ -71,7 +73,7 @@ const TUTORIAL = [
   { title: '困难模式可以主动反击', body: '在“供电与夜间负载”中安装并接通电力陷阱。尸潮到来时会先耗电抵消冲击，再计算加固吸收；电力不足不会生效。' },
   { title: '结局由你决定', body: '证据发送成功不会自动覆盖普通撤离。最后一天会明确让你选择离城路线，结局文案也会回应关键经历。' },
   { title: '越早采购越稳妥', body: '第一天商店货最全，此后会逐日限购和缺货。每次出门还有随身负重上限；第七天闯商店可能受伤，也可能在无人收银时带回一包物资。' },
-  { title: '所有地点都能逐区深入', body: '封锁后六处地点都有各自的内部区域、现场目标和多种处理方法。工具、技能、情报与已发现路线会解锁不同解法；随时可以返回入口撤离，系统会预留返程时间。' },
+  { title: '区域路线图会一直带路', body: '封锁后六处地点都有自己的区域路线图。它会标出当前位置、可直达区域、目标进度和返回入口的最短路线；撤离时系统会自动按这条路线折返，室内返路已计入预留时间。' },
   { title: '人物可以主动培养', body: '广播逐个建立人物联络后，可主动选择咨询或提供物资。信任达到门槛即可邀请结盟，让对方的职业能力持续影响诊疗、探索、维修或围攻。' },
   { title: '危险不是纯碰运气', body: '选项会先显示受险概率。系统再生成 1—100 的种子随机值：大于风险线就安全，低于风险线会受损，低于风险线一半会是严重后果。状态、装备、情报、难度和债务都会改变风险线。' },
 ];
@@ -105,6 +107,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const settlementWish = state.dailySettlement ? DAILY_WISH_MAP[state.dailySettlement.wishId] : undefined;
   const expeditionLocation = state.expedition ? DEEP_LOCATIONS[state.expedition.locationId] : undefined;
   const expeditionScene = state.expedition ? deepScene(state.expedition.locationId, state.expedition.sceneId) : undefined;
+  const expeditionMap = summarizeDeepMap(state);
   const selectedTarget = expeditionScene?.targets.find((target) => target.id === selectedTargetId);
   const pressure = survivalPressure(state.difficulty, Math.max(1, state.survivalDay));
   const needsAlert = survivalNeedAlert(state);
@@ -211,7 +214,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         const destination = deepScene(expeditionLocation.id, sceneId)!;
         return { id: `move-${sceneId}`, label: `前往 · ${destination.name}`, hint: '10分钟 · 体力 -1', onSelect: () => run(moveDeepExplore(state, sceneId)) };
       });
-      return [...targets, ...moves, { id: 'leave-expedition', label: '结束探索并返回避难所', hint: `${formatDuration(expeditionLocation.returnMinutes)} · 体力 -3 · 结算本次带回物资`, onSelect: () => run(leaveDeepExplore(state)) }];
+      return [...targets, ...moves, { id: 'leave-expedition', label: '沿返程路线撤离', hint: `自动折返入口 · 共 ${formatDuration(expeditionLocation.returnMinutes)}（含室内返路）· 体力 -3 · 结算本次所得`, onSelect: () => run(leaveDeepExplore(state)) }];
     }
     if (event) {
       return event.options.map((option, index) => ({
@@ -499,7 +502,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
     <main className="game-screen">
       <StatusBar state={state} savedAt={savedAt} onOpenInventory={() => setDrawer(true)} onOpenSettings={onSettings} onRestart={onRestart} />
       {activeWish && !state.dailySettlement && state.phase !== 'ended' && (
-        <aside className={`wish-float ${state.dailyPlan?.completedAtMinutes !== undefined ? 'complete' : ''}`} aria-live="polite">
+        <aside className={`wish-float ${state.dailyPlan?.completedAtMinutes !== undefined ? 'complete' : ''}${state.expedition ? ' expedition' : ''}`} aria-live="polite">
           <span>{state.dailyPlan?.completedAtMinutes !== undefined ? '愿望已达成' : '今日愿望'}</span>
           <strong>{activeWish.name}</strong>
           {state.dailyPlan?.completedAtMinutes === undefined && <small>{activeWish.description} · +{dailyWishRewardPoints(state)} 点</small>}
@@ -577,6 +580,15 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
                 ? '城市还在照常运转。每一次出门都能换来钱、物资、情报或一段关系，但今天的时间只够做其中几件。'
                 : siegeWaveForDay(state) ? `${siegeWaveForDay(state)!.warning}今晚将承受 ${siegeWaveForDay(state)!.pressure} 点冲击；当前加固预计吸收 ${Math.min(siegeWaveForDay(state)!.pressure, siegeMitigation(state))} 点。` : state.survivalDay === 8 ? '尸潮已经抵达主路。今天的任何噪声、加固和盟友都会影响门能撑多久。' : '行动会推进游戏内时钟。抵达日终后自动结算饱腹、水分、天气、冰箱、供电与伤病，也可以提前就寝。'}</p>
             </article>
+          )}
+
+          {state.expedition && expeditionMap && (
+            <DeepMap
+              summary={expeditionMap}
+              discoveredSceneIds={state.expedition.discoveredScenes}
+              navigationHint="10分钟 · 体力 -1"
+              onNavigate={(sceneId) => run(moveDeepExplore(state, sceneId))}
+            />
           )}
 
           <section className="log-section" aria-labelledby="log-title">

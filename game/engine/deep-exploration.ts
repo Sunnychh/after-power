@@ -138,7 +138,7 @@ export function beginDeepExplore(state: GameState, locationId: string): EngineRe
   if (danger.severity === 'major') next = applyEffect(next, { stats: { stamina: -9, health: -7 }, injury: '外伤' }, `前往${location.name}`);
   next.expedition = { locationId, sceneId: location.entrance, startedAtMinutes: state.clockMinutes, discoveredScenes: [location.entrance], gathered: [] };
   const dailyTargets = location.scenes.flatMap((scene) => scene.targets).filter((target) => deepTargetRefreshMode(target) === 'daily' && !isDeepTargetResolved(next, location.id, target)).length;
-  next.logs.push(createLog(next, `进入 · ${location.name}`, `你抵达${location.name}，把回程所需的 ${formatDuration(location.returnMinutes)} 单独留了出来。${describeDanger(danger)} 这里共有 ${location.scenes.length} 个内部区域，今日仍有 ${dailyTargets} 个普通搜刮点可处理；剧情证据不会刷新。只要返回入口并撤离，就不会因为缺少某件工具卡在里面。`, danger.severity === 'major' ? 'bad' : 'story'));
+  next.logs.push(createLog(next, `进入 · ${location.name}`, `你抵达${location.name}，把回程所需的 ${formatDuration(location.returnMinutes)} 单独留了出来。${describeDanger(danger)} 这里共有 ${location.scenes.length} 个内部区域，今日仍有 ${dailyTargets} 个普通搜刮点可处理；剧情证据不会刷新。区域路线图会标出入口最短路线；选择撤离时系统自动折返，室内返路已计入固定回程窗口。`, danger.severity === 'major' ? 'bad' : 'story'));
   return completeTimedAction(next, location.travelMinutes, 'survival:deep-travel');
 }
 
