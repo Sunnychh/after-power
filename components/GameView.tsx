@@ -17,6 +17,7 @@ import {
   availableStoreItems,
   endDay,
   eventOptionDisabledReason,
+  finishStoreTrip,
   performPrepAction,
   performSurvivalAction,
   prepWorkIncome,
@@ -39,7 +40,7 @@ import { bankDailyPoints, claimDailyReward, continueAfterMissedWish, dailyReward
 import { chooseEvacuation, TRUTH_POWER_COST, truthEndingMissingRequirements, truthEndingReady, truthEvidenceCount, trustedNpcCount } from '../game/engine/outcomes.ts';
 import { dangerRisk } from '../game/engine/state.ts';
 import { dayEndMinutes, formatClock, formatDuration, minutesRemaining, timeDisabledReason } from '../game/engine/time.ts';
-import { prepSupplyMessage, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
+import { prepSupplyMessage, shoppingCarryRemaining, shoppingReturnStamina, shoppingRoundTripStaminaRange, STORE_RETURN_MINUTES, storeStock } from '../game/engine/store.ts';
 import { beginDeepExplore, deepApproachRisk, deepOptionDisabledReason, deepStartDisabledReason, deepTargetRefreshMode, EXPLORATION_SKILL_LABELS, hardDeepLootRetention, isDeepTargetResolved, leaveDeepExplore, moveDeepExplore, resolveDeepTarget } from '../game/engine/deep-exploration.ts';
 import { powerUpgradeSpec, setPowerPolicy } from '../game/engine/power.ts';
 import { forecastNightPowerBudget, nextSiegeWave, nightPowerBudget, siegeMitigation, siegeWaveForDay } from '../game/engine/siege.ts';
@@ -110,6 +111,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const selectedTarget = expeditionScene?.targets.find((target) => target.id === selectedTargetId);
   const pressure = survivalPressure(state.difficulty, Math.max(1, state.survivalDay));
   const needsAlert = survivalNeedAlert(state);
+  const shoppingStaminaRange = shoppingRoundTripStaminaRange(state);
 
   const run = (result: EngineResult) => {
     const ok = onResult(result);
@@ -124,8 +126,8 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   };
 
   const closeShop = () => {
+    if (state.shoppingTrip && !onResult(finishStoreTrip(state))) return;
     setShop(null);
-    if (state.shoppingTrip) onCommit({ ...state, shoppingTrip: undefined });
   };
 
   const choices = (() : ActionChoice[] => {
@@ -235,9 +237,9 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         ] as Array<[StoreId, string, string]>).map(([id, label, hint]) => ({
           id,
           label: state.prepDay === 7 ? `高风险 · ${label}` : label,
-          hint: state.prepDay === 7 ? `2小时30分 · ${hint} · 可能受伤，也可能免费带回残余物资` : `1小时30分 · ${hint}`,
+          hint: state.prepDay === 7 ? `2小时30分 · ${hint} · 可能受伤，也可能免费带回残余物资` : `1小时30分往返 · 体力 -${shoppingStaminaRange.minimum}～${shoppingStaminaRange.maximum} · ${hint}`,
           danger: state.prepDay === 7 ? `${state.difficulty === 'easy' ? 10 : state.difficulty === 'hard' ? 26 : 18}% 受伤` : undefined,
-          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120)
+          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 90)
             ?? (state.prepDay === 7
               ? state.flags.includes(`risky-shopping:${state.prepDay}`) ? '最后一天已经冒险采购过一次' : null
               : state.flags.includes(`visited-store:${state.prepDay}:${id}`) ? '今天已经去过这家店' : null),
@@ -290,9 +292,9 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         {
           id: 'shops',
           label: state.prepDay === 7 ? '封锁前最后采购' : '前往商店采购',
-          hint: state.prepDay === 7 ? '2小时30分 · 街面已失控：可能受伤，也可能免费带回残余物资' : `1小时30分 · ${prepSupplyMessage(state.prepDay)}`,
+          hint: state.prepDay === 7 ? '2小时30分 · 街面已失控：可能受伤，也可能免费带回残余物资' : `1小时30分往返 · 体力 -${shoppingStaminaRange.minimum}～${shoppingStaminaRange.maximum} · ${prepSupplyMessage(state.prepDay)}`,
           danger: state.prepDay === 7 ? `${state.difficulty === 'easy' ? 10 : state.difficulty === 'hard' ? 26 : 18}% 受伤` : undefined,
-          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 120) ?? (state.prepDay === 7 && state.flags.includes(`risky-shopping:${state.prepDay}`) ? '最后一天已经冒险采购过一次' : null),
+          disabledReason: timedReason(state, state.prepDay === 7 ? 150 : 90) ?? (state.prepDay === 7 && state.flags.includes(`risky-shopping:${state.prepDay}`) ? '最后一天已经冒险采购过一次' : null),
           onSelect: () => setMode('shops'),
         },
         prep('reinforce', '加固门窗', '¥70 · 完整度 +15', 180, state.money < 70 ? '金钱不足（需要 ¥70）' : null),
@@ -758,9 +760,9 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
       )}
 
       {shop && (
-        <Modal title={STORE_NAMES[shop]} onClose={closeShop} footer={<button className="primary-inline" type="button" onClick={closeShop}>结束采购</button>}>
+        <Modal title={STORE_NAMES[shop]} onClose={closeShop} footer={<button className="primary-inline" type="button" onClick={closeShop}>结束采购并返程 · {formatDuration(STORE_RETURN_MINUTES)} · 体力 -{shoppingReturnStamina(state)}</button>}>
           <p className="store-description">{STORE_DESCRIPTIONS[shop]} {prepSupplyMessage(state.prepDay)}</p>
-          <div className="store-balance"><span>现金 <b>¥{state.money}</b></span><span>随身包剩余 <b>{shoppingCarryRemaining(state).toFixed(1)} kg</b> · 选购不另计时</span></div>
+          <div className="store-balance"><span>现金 <b>¥{state.money}</b></span><span>随身包剩余 <b>{shoppingCarryRemaining(state).toFixed(1)} kg</b> · 返程体力 -{shoppingReturnStamina(state)} · 选购不另计时</span></div>
           <div className="store-grid">
             {availableStoreItems(shop).map((item) => {
               const stock = storeStock(state, item);

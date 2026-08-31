@@ -8,14 +8,23 @@ import { addItem, canAddWeight, inventoryCount, inventoryWeight, removeItem } fr
 import { applyFoodVariety } from './nutrition.ts';
 import { determineOutcome, finishRun, TRUTH_POWER_COST, truthEndingMissingRequirements, truthEndingReady } from './outcomes.ts';
 import { randomInt, seededPick } from './rng.ts';
-import { shoppingCarryCapacity, shoppingCarryRemaining, storePurchaseKey, storeStock } from './store.ts';
+import {
+  shoppingCarryCapacity,
+  shoppingCarryRemaining,
+  shoppingOutboundStamina,
+  shoppingReturnStamina,
+  STORE_OUTBOUND_MINUTES,
+  STORE_RETURN_MINUTES,
+  storePurchaseKey,
+  storeStock,
+} from './store.ts';
 import { completeTimedAction, endDay, type EngineResult } from './day.ts';
 import { dailyActionBlockedReason, recordDailyAction } from './daily.ts';
 import { nextBroadcastContact } from './npcs.ts';
 import { powerUpgradeSpec } from './power.ts';
 import { radioUseDisabledReason, radioUseMethod } from './radio.ts';
 import { STORAGE_WATER_HYDRATION } from './rations.ts';
-import { timeDisabledReason } from './time.ts';
+import { minutesRemaining, timeDisabledReason } from './time.ts';
 import {
   absoluteDay,
   addFlag,
@@ -120,13 +129,34 @@ export function visitStore(state: GameState, store: StoreId): Result {
   if (state.prepDay === 7) return performLastDayShopping(state, store);
   const visitFlag = `visited-store:${state.prepDay}:${store}`;
   if (hasFlag(state, visitFlag)) return { state, ok: false, message: '今天已经去过这家店，店员不再允许重复进场。' };
-  const started = beginTimedAction(state, 90, 30);
+  const started = beginTimedAction(state, STORE_OUTBOUND_MINUTES, STORE_RETURN_MINUTES);
   if (!started.state) return { state, ok: false, message: started.reason ?? '当前无法前往商店。' };
-  const next = started.state;
+  const outboundStamina = shoppingOutboundStamina(state);
+  const next = applyEffect(started.state, { stats: { stamina: -outboundStamina } }, '采购去程');
   addFlag(next, visitFlag);
   next.shoppingTrip = { store, prepDay: next.prepDay, carriedWeight: 0, capacity: shoppingCarryCapacity(next) };
-  next.logs = [...next.logs, createLog(next, '出门采购', `${state.prepDay === 1 ? '街面还算平静，但抢购的苗头已经出现。' : '街上的人比昨天更多，货架上的选择也比昨天更少。'}你只带了一只能装 ${next.shoppingTrip.capacity}kg 的随身包，装满就必须回家。`, 'system')];
-  return completeTimedAction(next, 90, 'prep:visit-store');
+  next.logs = [...next.logs, createLog(next, '出门采购', `${state.prepDay === 1 ? '街面还算平静，但抢购的苗头已经出现。' : '街上的人比昨天更多，货架上的选择也比昨天更少。'}去程 ${STORE_OUTBOUND_MINUTES} 分钟、体力 -${outboundStamina}。你只带了一只能装 ${next.shoppingTrip.capacity}kg 的随身包，装得越重，返程体力消耗越高。`, 'system')];
+  return completeTimedAction(next, STORE_OUTBOUND_MINUTES, 'prep:visit-store');
+}
+
+export function finishStoreTrip(state: GameState): Result {
+  if (state.phase !== 'prep' || state.prepDay === 7 || !state.shoppingTrip || state.shoppingTrip.prepDay !== state.prepDay) {
+    return { state, ok: false, message: '当前没有需要结算的普通采购返程。' };
+  }
+  const trip = state.shoppingTrip;
+  const staminaCost = shoppingReturnStamina(state);
+  // v4 的旧存档可能只为返程留了 30 分钟；新行程始终预留完整 45 分钟。
+  const returnMinutes = Math.min(STORE_RETURN_MINUTES, minutesRemaining(state));
+  const next = applyEffect(state, { stats: { stamina: -staminaCost } }, '负重返程');
+  next.shoppingTrip = undefined;
+  next.logs = [...next.logs, createLog(
+    next,
+    '采购返程',
+    `你背着 ${trip.carriedWeight.toFixed(1)}kg 物资回到避难所。返程 ${returnMinutes} 分钟、体力 -${staminaCost}；其中负重额外消耗 ${Math.max(0, staminaCost - shoppingOutboundStamina(state))} 点。`,
+    'system',
+  )];
+  if (returnMinutes <= 0) return endDay(next, true);
+  return completeTimedAction(next, returnMinutes, 'prep:return-store');
 }
 
 function performLastDayShopping(state: GameState, store: StoreId): Result {

@@ -4,6 +4,24 @@ import { normalizeSeed, randomInt } from './rng.ts';
 
 const DAILY_STOCK_FACTORS = [1, 0.75, 0.58, 0.42, 0.28, 0.16, 0.08] as const;
 
+export const STORE_OUTBOUND_MINUTES = 45;
+export const STORE_RETURN_MINUTES = 45;
+
+export function shoppingOutboundStamina(state: Pick<GameState, 'difficulty'>): number {
+  return state.difficulty === 'easy' ? 2 : state.difficulty === 'hard' ? 4 : 3;
+}
+
+export function shoppingReturnStamina(state: Pick<GameState, 'difficulty' | 'shoppingTrip'>): number {
+  const carriedWeight = Math.max(0, state.shoppingTrip?.carriedWeight ?? 0);
+  return shoppingOutboundStamina(state) + Math.ceil(carriedWeight / 3);
+}
+
+export function shoppingRoundTripStaminaRange(state: Pick<GameState, 'difficulty'>): { minimum: number; maximum: number } {
+  const outbound = shoppingOutboundStamina(state);
+  const capacity = DIFFICULTY_MAP[state.difficulty].shoppingCarryCapacity;
+  return { minimum: outbound * 2, maximum: outbound * 2 + Math.ceil(capacity / 3) };
+}
+
 function baseStockRange(item: ItemDefinition): [number, number] {
   if (item.category === '食物' || item.category === '饮水') return [5, 10];
   if (item.category === '药品') return [3, 6];

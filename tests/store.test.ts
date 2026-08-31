@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ITEM_MAP } from '../game/data/items.ts';
-import { purchaseItem, visitStore } from '../game/engine/actions.ts';
+import { finishStoreTrip, purchaseItem, visitStore } from '../game/engine/actions.ts';
 import { inventoryCount } from '../game/engine/inventory.ts';
 import { createInitialState } from '../game/engine/state.ts';
-import { initialStoreStock, shoppingCarryRemaining, storeStock } from '../game/engine/store.ts';
+import { initialStoreStock, shoppingCarryRemaining, shoppingOutboundStamina, shoppingReturnStamina, storeStock } from '../game/engine/store.ts';
 import { activateDay } from './helpers.ts';
 
 function prepState(seed: string, difficulty: 'easy' | 'normal' | 'hard' = 'normal') {
@@ -61,6 +61,32 @@ test('每次采购受独立随身包容量限制', () => {
   const blocked = purchaseItem(state, item.id);
   assert.equal(blocked.ok, false);
   assert.match(blocked.message ?? '', /随身包/);
+});
+
+test('普通采购按去返程推进九十分钟，并按难度与负重真实消耗体力', () => {
+  const state = prepState('shopping-travel-cost', 'normal');
+  state.money = 10_000;
+  const clockBefore = state.clockMinutes;
+  const staminaBefore = state.stats.stamina;
+  const outboundCost = shoppingOutboundStamina(state);
+
+  const arrived = visitStore(state, 'market');
+  assert.equal(arrived.ok, true);
+  assert.equal(arrived.state.clockMinutes, clockBefore + 45);
+  assert.equal(arrived.state.stats.stamina, staminaBefore - outboundCost);
+  assert.ok(arrived.state.shoppingTrip);
+
+  const bought = purchaseItem(arrived.state, 'water-bottle');
+  assert.equal(bought.ok, true);
+  const returnCost = shoppingReturnStamina(bought.state);
+  assert.ok(returnCost > outboundCost, '带货返程应比空手去程更累');
+
+  const returned = finishStoreTrip(bought.state);
+  assert.equal(returned.ok, true);
+  assert.equal(returned.state.clockMinutes, clockBefore + 90);
+  assert.equal(returned.state.stats.stamina, staminaBefore - outboundCost - returnCost);
+  assert.equal(returned.state.shoppingTrip, undefined);
+  assert.match(returned.state.logs.at(-1)?.body ?? '', /负重额外消耗/);
 });
 
 test('第七天停止正常零售，冒险结果包含受伤与免费带回物资', () => {
