@@ -158,7 +158,7 @@ test('每三次料理提升技能并提高后续成功率', () => {
   assert.ok(cookingSuccessChance(state) > initialChance);
 });
 
-test('储水可以主动饮用，三种厨具各有十种不重复组合', () => {
+test('储水可以主动饮用，三种厨具各有十四种不重复组合且覆盖二至四种食材', () => {
   const state = survivalState('stored-water', 'normal');
   state.shelter.water = 8;
   state.stats.hydration = 40;
@@ -166,11 +166,11 @@ test('储水可以主动饮用，三种厨具各有十种不重复组合', () =>
   assert.equal(drank.ok, true);
   assert.equal(drank.state.shelter.water, 4);
   assert.equal(drank.state.stats.hydration, 68);
-  assert.ok(RECIPES.length >= 30);
+  assert.ok(RECIPES.length >= 42);
   assert.ok(ITEMS.length >= 80);
   const combinationKeys = new Set<string>();
   for (const appliance of ['gas-stove', 'microwave', 'electric-hotpot'] as const) {
-    assert.ok(RECIPES.filter((recipe) => recipe.appliance === appliance).length >= 10);
+    assert.ok(RECIPES.filter((recipe) => recipe.appliance === appliance).length >= 14);
   }
   for (const recipe of RECIPES) {
     const combinationKey = `${recipe.appliance}:${Object.entries(recipe.ingredients).sort(([left], [right]) => left.localeCompare(right)).map(([itemId, quantity]) => `${itemId}x${quantity}`).join('+')}`;
@@ -179,7 +179,42 @@ test('储水可以主动饮用，三种厨具各有十种不重复组合', () =>
     assert.ok(ITEM_MAP[recipe.output], `${recipe.id} 缺少料理成品`);
     for (const ingredient of Object.keys(recipe.ingredients)) assert.ok(ITEM_MAP[ingredient], `${recipe.id} 缺少食材 ${ingredient}`);
   }
+  const ingredientCounts = new Set(RECIPES.map((recipe) => Object.values(recipe.ingredients).reduce((sum, quantity) => sum + quantity, 0)));
+  assert.ok(ingredientCounts.has(2));
+  assert.ok(ingredientCounts.has(3));
+  assert.ok(ingredientCounts.has(4));
   assert.equal(availableCookingRecipes(state, 'gas-stove').length, 0);
+});
+
+test('玩家必须明确选择料理水源，储水器和瓶装水都会严格扣除', () => {
+  let storedSucceeded = false;
+  for (let index = 0; index < 40 && !storedSucceeded; index += 1) {
+    const state = survivalState(`selected-stored-water-${index}`, 'easy');
+    state.cookingSkill = 5;
+    state.shelter.power = 12;
+    state.shelter.water = 9;
+    state.inventory = addItem({}, ITEM_MAP['frozen-dumplings'], 1, 8);
+    const dryInsight = cookingSelectionInsight(state, 'electric-hotpot', ['frozen-dumplings'], 'none');
+    assert.match(dryInsight.label, /尚未选择用水/);
+    const result = performFurnitureAction(state, 'electric-hotpot', ['frozen-dumplings'], 'shelter');
+    if (result.state.discoveredRecipes.includes('plain-dumplings')) {
+      storedSucceeded = true;
+      assert.equal(result.state.shelter.water, 5);
+      assert.equal(inventoryCount(result.state.inventory, 'dish-boiled-dumplings'), 1);
+    }
+  }
+  assert.equal(storedSucceeded, true);
+
+  const bottled = survivalState('selected-bottled-water', 'easy');
+  bottled.cookingSkill = 5;
+  bottled.shelter.power = 12;
+  bottled.shelter.water = 0;
+  bottled.inventory = addItem({}, ITEM_MAP['frozen-dumplings'], 1, 8);
+  bottled.inventory = addItem(bottled.inventory, ITEM_MAP['water-bottle'], 1, 8);
+  const result = performFurnitureAction(bottled, 'electric-hotpot', ['frozen-dumplings'], 'bottle');
+  assert.equal(result.ok, true);
+  assert.equal(inventoryCount(result.state.inventory, 'water-bottle'), 0);
+  assert.match([...result.state.logs].reverse().find((log) => log.title.startsWith('电火锅'))?.body ?? '', /加入瓶装水/);
 });
 
 test('未掌握组合下锅前保持未知，只对即兴组合提示更高失败可能', () => {

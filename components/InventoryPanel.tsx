@@ -6,7 +6,7 @@ import { FURNITURE } from '../game/data/furniture.ts';
 import { batchExpiryStatus, inventoryCount } from '../game/engine/inventory.ts';
 import { inventorySummary } from '../game/engine/actions.ts';
 import { absoluteDay } from '../game/engine/state.ts';
-import type { GameState } from '../game/types.ts';
+import type { GameState, ItemCategory } from '../game/types.ts';
 import { POWER_POLICY_MAP } from '../game/data/power.ts';
 import { nightPowerBudget, siegeMitigation } from '../game/engine/siege.ts';
 import { foodVarietyPreview } from '../game/engine/nutrition.ts';
@@ -21,16 +21,18 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
   onUse: (itemId: string) => void;
 }) {
   const [tab, setTab] = useState<'inventory' | 'shelter' | 'archive'>('inventory');
+  const [category, setCategory] = useState<ItemCategory | '全部'>('全部');
   const summary = inventorySummary(state);
   const currentDay = absoluteDay(state);
   const powerPolicy = POWER_POLICY_MAP[state.powerPolicy];
   const powerBudget = nightPowerBudget(state);
   const discoveredRecipes = RECIPES.filter((recipe) => state.discoveredRecipes.includes(recipe.id));
   const undiscoveredRecipeCount = RECIPES.length - discoveredRecipes.length;
-  const entries = Object.keys(state.inventory)
+  const allEntries = Object.keys(state.inventory)
     .map((id) => ITEM_MAP[id])
     .filter(Boolean)
     .sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category) || a.name.localeCompare(b.name));
+  const entries = category === '全部' ? allEntries : allEntries.filter((item) => item.category === category);
 
   return (
     <aside className={`inventory-panel ${open ? 'open' : ''}`} aria-label="背包与避难所">
@@ -48,6 +50,12 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
           <div className="weight-meter">
             <div><span>储物重量</span><b>{summary.weight.toFixed(1)} / {summary.capacity} kg</b></div>
             <span><i style={{ width: `${Math.min(100, summary.weight / summary.capacity * 100)}%` }} /></span>
+          </div>
+          <div className="inventory-filters" role="group" aria-label="物资分类筛选">
+            {(['全部', ...CATEGORY_ORDER] as const).map((entry) => {
+              const count = entry === '全部' ? allEntries.length : allEntries.filter((item) => item.category === entry).length;
+              return <button key={entry} type="button" className={category === entry ? 'active' : ''} aria-pressed={category === entry} onClick={() => setCategory(entry)}>{entry}<b>{count}</b></button>;
+            })}
           </div>
           {!entries.length && <p className="empty-state">储物架还是空的。灾前去商店采购，封锁后外出搜寻。</p>}
           <div className="item-list">
@@ -140,7 +148,7 @@ export function InventoryPanel({ state, open, onClose, onUse }: {
             <div className="archive-heading"><span className="section-kicker">RECIPE NOTEBOOK</span><h2>配方图鉴</h2><b>{discoveredRecipes.length}/{RECIPES.length}</b></div>
             <p className="panel-note">这里只记录已经成功做出的菜。未知组合不会按格子泄露菜名、厨具或所需食材。</p>
             <div className="archive-list">
-              {discoveredRecipes.map((recipe) => <article key={recipe.id} className="discovered"><header><strong>{recipe.name}</strong><span>{recipe.appliance === 'gas-stove' ? '燃气炉' : recipe.appliance === 'microwave' ? '微波炉' : '电火锅'}</span></header><p>{Object.entries(recipe.ingredients).map(([itemId, quantity]) => `${ITEM_MAP[itemId]?.name ?? itemId} ×${quantity}`).join(' + ')}</p><small>用水 {recipe.water} · 耗能 {recipe.energy} · {recipe.description}</small></article>)}
+              {discoveredRecipes.map((recipe) => <article key={recipe.id} className="discovered"><header><strong>{recipe.name}</strong><span>{recipe.appliance === 'gas-stove' ? '燃气炉' : recipe.appliance === 'microwave' ? '微波炉' : '电火锅'}</span></header><p>{[...(recipe.water ? [`净水 ×${recipe.water}（储水器或瓶装水）`] : []), ...Object.entries(recipe.ingredients).map(([itemId, quantity]) => `${ITEM_MAP[itemId]?.name ?? itemId} ×${quantity}`)].join(' + ')}</p><small>耗能 {recipe.energy} · 共 {Object.values(recipe.ingredients).reduce((sum, quantity) => sum + quantity, 0) + (recipe.water ? 1 : 0)} 项原料 · {recipe.description}</small></article>)}
               {undiscoveredRecipeCount > 0 && <article className="locked"><header><strong>还有 {undiscoveredRecipeCount} 种未知做法</strong><span>未揭晓</span></header><p>选择手头食材亲自尝试；成功做出后，这一页才会留下完整配方。</p><small>失败不会锁死食材组合，并且仍会增加料理经验。</small></article>}
             </div>
           </section>

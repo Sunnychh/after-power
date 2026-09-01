@@ -9,6 +9,7 @@ import { absoluteDay, applyEffect, clamp, createLog } from './state.ts';
 import { timeDisabledReason } from './time.ts';
 
 export type FurnitureActionId = CookingApplianceId;
+export type CookingWaterSource = 'none' | 'shelter' | 'bottle' | 'auto';
 
 export interface CookingSelectionInsight {
   status: 'empty' | 'known' | 'unknown' | 'risky';
@@ -32,10 +33,12 @@ function bottledWaterCost(recipe: CookingRecipe): number {
   return recipe.water > 0 ? Math.ceil(recipe.water / 4) : 0;
 }
 
-function hasRecipeWater(state: GameState, recipe: CookingRecipe): boolean {
-  return recipe.water === 0
-    || state.shelter.water >= recipe.water
-    || inventoryCount(state.inventory, 'water-bottle') >= bottledWaterCost(recipe);
+function hasRecipeWater(state: GameState, recipe: CookingRecipe, source: CookingWaterSource = 'auto'): boolean {
+  if (recipe.water === 0) return source === 'none' || source === 'auto';
+  if (source === 'none') return false;
+  if (source === 'shelter') return state.shelter.water >= recipe.water;
+  if (source === 'bottle') return inventoryCount(state.inventory, 'water-bottle') >= bottledWaterCost(recipe);
+  return state.shelter.water >= recipe.water || inventoryCount(state.inventory, 'water-bottle') >= bottledWaterCost(recipe);
 }
 
 function hasRecipeIngredients(state: GameState, recipe: CookingRecipe): boolean {
@@ -94,7 +97,7 @@ export function cookingPreview(state: GameState, action: FurnitureActionId): { r
  * Gives the player a useful risk read without leaking an undiscovered recipe.
  * Only recipes already cooked successfully are named; every other selection remains unknown.
  */
-export function cookingSelectionInsight(state: GameState, action: FurnitureActionId, ingredientIds: string[]): CookingSelectionInsight {
+export function cookingSelectionInsight(state: GameState, action: FurnitureActionId, ingredientIds: string[], waterSource: CookingWaterSource = 'auto'): CookingSelectionInsight {
   if (!ingredientIds.length) return { status: 'empty', label: '等待选择食材' };
   const chance = cookingSuccessChance(state);
   const recipe = selectedRecipeDefinition(action, ingredientIds);
@@ -103,12 +106,12 @@ export function cookingSelectionInsight(state: GameState, action: FurnitureActio
     return { status: 'risky', label: `未知结果 · 失败可能性较大（即兴成功约 ${improvisationChance}%）`, chance: improvisationChance };
   }
   const hasEnergy = action === 'gas-stove' ? state.shelter.fuel >= recipe.energy : state.shelter.power >= recipe.energy;
-  const hasWater = hasRecipeWater(state, recipe);
+  const hasWater = hasRecipeWater(state, recipe, waterSource);
   if (!hasEnergy || !hasWater) {
     const improvisationChance = clamp(chance - 22 + Math.max(0, ingredientIds.length - 1) * 3, 20, 80);
     const shortages = [
       !hasEnergy ? `${action === 'gas-stove' ? '燃料' : '电力'}不足完整火候` : '',
-      !hasWater ? '可用水不足完整做法' : '',
+      !hasWater ? recipe.water > 0 && waterSource === 'none' ? '尚未选择用水' : '可用水不足，所选水源无法完成做法' : '',
     ].filter(Boolean).join('、');
     if (state.discoveredRecipes.includes(recipe.id)) {
       return { status: 'known', label: `已掌握 · ${recipe.name}；${shortages}，本次只能即兴尝试（成功约 ${improvisationChance}%）`, chance: improvisationChance };
@@ -141,14 +144,21 @@ export function furnitureActionDisabledReason(state: GameState, action: Furnitur
   return null;
 }
 
-export function selectedCookingDisabledReason(state: GameState, action: FurnitureActionId, ingredientIds: string[]): string | null {
+export function selectedCookingDisabledReason(state: GameState, action: FurnitureActionId, ingredientIds: string[], waterSource: CookingWaterSource = 'auto'): string | null {
   const base = furnitureActionDisabledReason(state, action);
   if (base) return base;
   if (!ingredientIds.length) return '至少选择一种食材';
   if (new Set(ingredientIds).size !== ingredientIds.length) return '同一种食材每次最多投入一份';
   const available = new Set(availableCookingIngredients(state).map((item) => item.id));
   const unavailable = ingredientIds.find((itemId) => !available.has(itemId));
-  return unavailable ? `${ITEM_MAP[unavailable]?.name ?? unavailable} 当前不可投入` : null;
+  if (unavailable) return `${ITEM_MAP[unavailable]?.name ?? unavailable} 当前不可投入`;
+  const recipe = selectedRecipeDefinition(action, ingredientIds);
+  if (recipe && recipe.water > 0 && waterSource !== 'none' && !hasRecipeWater(state, recipe, waterSource)) {
+    return waterSource === 'shelter' ? `储水器净水不足 ${recipe.water}` : `瓶装水不足 ${bottledWaterCost(recipe)} 瓶`;
+  }
+  if (waterSource === 'shelter' && state.shelter.water < 1) return '储水器已经没有可用净水';
+  if (waterSource === 'bottle' && inventoryCount(state.inventory, 'water-bottle') < 1) return '背包里没有瓶装水';
+  return null;
 }
 
 function cookingInventoryEffect(recipe: CookingRecipe, output: string): Record<string, number> {
@@ -157,9 +167,9 @@ function cookingInventoryEffect(recipe: CookingRecipe, output: string): Record<s
   return inventory;
 }
 
-export function performFurnitureAction(state: GameState, action: FurnitureActionId, selectedIngredientIds?: string[]): EngineResult {
+export function performFurnitureAction(state: GameState, action: FurnitureActionId, selectedIngredientIds?: string[], selectedWaterSource: CookingWaterSource = 'auto'): EngineResult {
   const disabled = selectedIngredientIds
-    ? selectedCookingDisabledReason(state, action, selectedIngredientIds)
+    ? selectedCookingDisabledReason(state, action, selectedIngredientIds, selectedWaterSource)
     : furnitureActionDisabledReason(state, action);
   if (disabled) return { state, ok: false, message: disabled };
 
@@ -169,7 +179,8 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
   const richestIngredientCount = Math.max(0, ...completeRecipes.map((recipe) => Object.values(recipe.ingredients).reduce((sum, quantity) => sum + quantity, 0)));
   const preferredRecipes = completeRecipes.filter((recipe) => Object.values(recipe.ingredients).reduce((sum, quantity) => sum + quantity, 0) === richestIngredientCount);
   const selected = selectedIngredientIds ? [...selectedIngredientIds].sort() : undefined;
-  const selectedRecipe = selected ? completeRecipes.find((candidate) => matchesSelectedIngredients(candidate, selected)) : undefined;
+  const selectedCandidate = selected ? selectedRecipeDefinition(action, selected) : undefined;
+  const selectedRecipe = selectedCandidate && hasRecipeWater(next, selectedCandidate, selectedWaterSource) ? selectedCandidate : undefined;
   const recipePick = !selected && preferredRecipes.length ? seededPick(next.rngState, preferredRecipes) : undefined;
   if (recipePick) next.rngState = recipePick.state;
   const recipe = selectedRecipe ?? recipePick?.value;
@@ -184,8 +195,10 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
   next.rngState = roll.state;
   const chance = recipe ? cookingSuccessChance(next) : clamp(cookingSuccessChance(next) - 22 + Math.max(0, improvisedIngredients.length - 1) * 3, 20, 80);
   const success = roll.value <= chance;
-  const useStoredWater = Boolean(recipe && recipe.water > 0 && next.shelter.water >= recipe.water);
-  const waterBottles = recipe && !useStoredWater ? bottledWaterCost(recipe) : 0;
+  const useStoredWater = Boolean(recipe && recipe.water > 0 && (selectedWaterSource === 'shelter' || (selectedWaterSource === 'auto' && next.shelter.water >= recipe.water)));
+  const waterBottles = recipe && recipe.water > 0 && !useStoredWater ? bottledWaterCost(recipe) : 0;
+  const improvisedStoredWater = !recipe && selectedWaterSource === 'shelter' ? 1 : 0;
+  const improvisedWaterBottle = !recipe && selectedWaterSource === 'bottle' ? 1 : 0;
   const improvisedDumplings = improvisedIngredients.length === 1 && improvisedIngredients[0]?.id === 'frozen-dumplings';
   const output = recipe
     ? success ? recipe.output : 'scorched-meal'
@@ -201,10 +214,12 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
     inventory: {
       ...inventoryEffect,
       ...(waterBottles ? { 'water-bottle': -waterBottles } : {}),
+      ...(improvisedWaterBottle ? { 'water-bottle': -1 } : {}),
     },
     shelter: {
       ...(action === 'gas-stove' ? { fuel: -energy } : { power: -energy }),
       ...(useStoredWater && recipe ? { water: -recipe.water } : {}),
+      ...(improvisedStoredWater ? { water: -1 } : {}),
     },
     stats: success ? { morale: 3 } : FAILED_COOKING_EFFECT,
   }, reason);
@@ -223,7 +238,9 @@ export function performFurnitureAction(state: GameState, action: FurnitureAction
   }
 
   const applianceName = action === 'gas-stove' ? '燃气炉' : action === 'microwave' ? '微波炉' : '电火锅';
-  const waterText = !recipe ? '没有凑齐完整配方，也没有强制补水' : recipe.water === 0 ? '这道料理不需要额外用水' : useStoredWater ? `使用储水 ${recipe.water}` : `使用瓶装水 ×${waterBottles}`;
+  const waterText = !recipe
+    ? selectedWaterSource === 'shelter' ? '从储水器加入净水 1' : selectedWaterSource === 'bottle' ? '加入瓶装水 ×1' : '没有加入水'
+    : recipe.water === 0 ? '这道料理不需要额外用水' : useStoredWater ? `从储水器加入净水 ${recipe.water}` : `加入瓶装水 ×${waterBottles}`;
   const skillText = next.cookingSkill > previousSkill ? `反复尝试让你的料理技能提升到 ${next.cookingSkill} 级。` : '';
   const usedIngredientIds = recipe
     ? Object.entries(recipe.ingredients).flatMap(([itemId, quantity]) => Array(quantity).fill(itemId))

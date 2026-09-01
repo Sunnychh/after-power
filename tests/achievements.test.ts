@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ACHIEVEMENTS } from '../game/data/achievements.ts';
+import { ITEM_MAP } from '../game/data/items.ts';
 import { LOCATIONS } from '../game/data/world.ts';
 import { achievementProgress, evaluateAchievements } from '../game/engine/achievements.ts';
+import { addItem } from '../game/engine/inventory.ts';
 import { loadMeta, saveMeta } from '../game/engine/save.ts';
 import { createInitialState, DEFAULT_META, META_SAVE_KEY } from '../game/engine/state.ts';
 import type { MetaState, StorageLike } from '../game/types.ts';
@@ -19,7 +21,7 @@ function meta(): MetaState {
 }
 
 test('成就定义数量、ID 与名称保持唯一且覆盖六类玩法', () => {
-  assert.equal(ACHIEVEMENTS.length, 15);
+  assert.equal(ACHIEVEMENTS.length, 21);
   assert.equal(new Set(ACHIEVEMENTS.map((achievement) => achievement.id)).size, ACHIEVEMENTS.length);
   assert.equal(new Set(ACHIEVEMENTS.map((achievement) => achievement.name)).size, ACHIEVEMENTS.length);
   assert.deepEqual(
@@ -68,6 +70,24 @@ test('艰难难度主动防线与非死亡结局拥有独立成就', () => {
   assert.ok(ids.includes('live-wire'));
   assert.ok(ids.includes('hard-survivor'));
   assert.ok(ids.includes('ending-survivor'));
+});
+
+test('丰富物资、料理、技能、广播与长期生存都会产生可见里程碑', () => {
+  const state = createInitialState('achievement-rich-run');
+  state.phase = 'survival';
+  state.survivalDay = 10;
+  state.shelter.integrity = 94;
+  state.shelter.reinforcement = 2;
+  state.broadcasts = 4;
+  state.discoveredRecipes = Array.from({ length: 16 }, (_, index) => `recipe-${index}`);
+  for (const skill of Object.values(state.explorationSkills)) {
+    skill.level = 2;
+    skill.xp = 6;
+  }
+  const foodIds = Object.values(ITEM_MAP).filter((item) => item.category === '食物' || item.category === '饮水').slice(0, 12);
+  for (const item of foodIds) state.inventory = addItem(state.inventory, item, 1, 8);
+  const ids = evaluateAchievements(meta(), state).unlocked.map((achievement) => achievement.id);
+  for (const id of ['recipe-master', 'pantry-variety', 'shelter-ready', 'all-rounder', 'broadcast-circle', 'long-haul'] as const) assert.ok(ids.includes(id));
 });
 
 test('隐藏结局成就与三类结局收藏使用跨轮回 Meta 进度', () => {

@@ -24,6 +24,10 @@ export const RECIPES: CookingRecipe[] = [
   { id: 'egg-drop-dough', name: '蛋花面疙瘩', appliance: 'gas-stove', ingredients: { flour: 1, 'egg-powder': 1 }, water: 4, energy: 3, output: 'dish-egg-drop-dough', description: '把面粉拨进蛋汤里，疙瘩大小全凭手感。' },
   { id: 'coffee-glazed-meat', name: '咖啡焦边午餐肉', appliance: 'gas-stove', ingredients: { 'luncheon-meat': 1, 'instant-coffee': 1, 'cooking-oil': 1 }, water: 0, energy: 3, output: 'dish-coffee-glazed-meat', description: '苦味咖啡在肉片边缘结成薄壳，闻起来荒唐，入口却意外像焦糖。' },
   { id: 'milky-rice', name: '避难所奶香甜饭', appliance: 'gas-stove', ingredients: { rice: 1, 'milk-powder': 1 }, water: 4, energy: 3, output: 'dish-milky-rice', description: '没有糖，只靠奶粉的甜味把一碗软饭变成简陋甜点。' },
+  { id: 'four-supply-stew', name: '四格储备炖锅', appliance: 'gas-stove', ingredients: { potatoes: 1, 'luncheon-meat': 1, 'tomato-can': 1, 'dried-vegetables': 1 }, water: 5, energy: 4, output: 'dish-four-supply-stew', description: '四种储备物塞进同一口锅，先后顺序决定土豆会不会夹生。' },
+  { id: 'soy-mushroom-rice', name: '酱香菌菇焖饭', appliance: 'gas-stove', ingredients: { rice: 1, 'dried-mushrooms': 1, 'soy-sauce': 1 }, water: 4, energy: 3, output: 'dish-soy-mushroom-rice', description: '香菇水和酱油一起渗进米粒，开盖时像一顿真正的家常饭。' },
+  { id: 'apple-oat-porridge', name: '苹果奶香燕麦粥', appliance: 'gas-stove', ingredients: { oats: 1, 'fresh-apples': 1, 'milk-powder': 1 }, water: 4, energy: 3, output: 'dish-apple-oat-porridge', description: '苹果煮软后提供稀缺的甜味，奶粉让粥显得更厚。' },
+  { id: 'bean-flatbread', name: '豆泥口袋饼', appliance: 'gas-stove', ingredients: { flour: 1, 'canned-beans': 1, 'cooking-oil': 1 }, water: 2, energy: 3, output: 'dish-bean-flatbread', description: '豆泥包进薄面饼，边缘捏得不好就会在锅里裂开。' },
 
   { id: 'milk-oatmeal', name: '奶香燕麦糊', appliance: 'microwave', ingredients: { oats: 1, 'milk-powder': 1 }, water: 2, energy: 2, output: 'dish-milk-oatmeal', description: '加热时间短，最适合刚开始练习。' },
   { id: 'bean-hash', name: '豆子午餐肉烩', appliance: 'microwave', ingredients: { 'canned-beans': 1, 'luncheon-meat': 1 }, water: 0, energy: 2, output: 'dish-bean-hash', description: '需要中途搅拌，否则边缘容易干硬。' },
@@ -35,6 +39,10 @@ export const RECIPES: CookingRecipe[] = [
   { id: 'coffee-oat-slab', name: '咖啡燕麦砖', appliance: 'microwave', ingredients: { oats: 1, 'instant-coffee': 1 }, water: 1, energy: 2, output: 'dish-coffee-oat-slab', description: '燕麦被加热成紧实方块，苦得清醒，也很顶饿。' },
   { id: 'tomato-steamed-dumplings', name: '番茄汽蒸饺', appliance: 'microwave', ingredients: { 'frozen-dumplings': 1, 'tomato-can': 1 }, water: 1, energy: 3, output: 'dish-tomato-steamed-dumplings', description: '番茄汁在密封盒里变成蒸汽，饺子皮染成浅红色。' },
   { id: 'chocolate-baked-apple', name: '黑巧烤苹果', appliance: 'microwave', ingredients: { 'fresh-apples': 1, chocolate: 1 }, water: 0, energy: 2, output: 'dish-chocolate-baked-apple', description: '苹果软塌，黑巧克力融进果汁里，是停电前才会嫌寒酸的甜点。' },
+  { id: 'potato-meat-stack', name: '酱油土豆肉塔', appliance: 'microwave', ingredients: { potatoes: 1, 'luncheon-meat': 1, 'soy-sauce': 1 }, water: 0, energy: 3, output: 'dish-potato-meat-stack', description: '土豆片和午餐肉交替叠放，油脂在密封盒底汇成咸汁。' },
+  { id: 'tomato-egg-cup', name: '番茄浓汤蛋杯', appliance: 'microwave', ingredients: { 'egg-powder': 1, 'tomato-can': 1, bouillon: 1 }, water: 2, energy: 3, output: 'dish-tomato-egg-cup', description: '番茄、蛋液和汤块在杯中凝成介于汤与蛋羹之间的东西。' },
+  { id: 'chocolate-coffee-pudding', name: '咖啡黑巧饼干布丁', appliance: 'microwave', ingredients: { crackers: 1, 'milk-powder': 1, chocolate: 1, 'instant-coffee': 1 }, water: 2, energy: 3, output: 'dish-chocolate-coffee-pudding', description: '四样奢侈小物换来一杯苦甜发黏的热布丁，精神上的价值大过热量。' },
+  { id: 'dumpling-egg-bake', name: '酱香饺子蛋烘', appliance: 'microwave', ingredients: { 'frozen-dumplings': 1, 'egg-powder': 1, 'soy-sauce': 1 }, water: 2, energy: 3, output: 'dish-dumpling-egg-bake', description: '碎饺子被蛋液固定在盒里，像一块不太规整的咸蛋糕。' },
 
   { id: 'dumpling-soup', name: '蔬菜饺子汤', appliance: 'electric-hotpot', ingredients: { 'frozen-dumplings': 1, 'dried-vegetables': 1 }, water: 5, energy: 3, output: 'dish-dumpling-soup', description: '解冻后的饺子皮很脆弱，水滚得太急会破。' },
   { id: 'plain-dumplings', name: '清水煮饺子', appliance: 'electric-hotpot', ingredients: { 'frozen-dumplings': 1 }, water: 4, energy: 3, output: 'dish-boiled-dumplings', description: '只有水和速冻水饺也能成一顿饭；水开后需要及时添一次凉水。' },
@@ -46,6 +54,10 @@ export const RECIPES: CookingRecipe[] = [
   { id: 'red-three-veg-pot', name: '红汤三蔬锅', appliance: 'electric-hotpot', ingredients: { potatoes: 1, 'tomato-can': 1, 'dried-mushrooms': 1 }, water: 4, energy: 4, output: 'dish-red-three-veg-pot', description: '没有新鲜菜，三种耐储食材仍能煮出层次分明的一锅。' },
   { id: 'cracker-bouillon-soup', name: '饼干浓汤', appliance: 'electric-hotpot', ingredients: { crackers: 1, bouillon: 1 }, water: 5, energy: 3, output: 'dish-cracker-bouillon-soup', description: '压缩饼干在汤里完全化开，像一碗咸味很重的糊。' },
   { id: 'apple-mushroom-broth', name: '苹果香菇汤', appliance: 'electric-hotpot', ingredients: { 'fresh-apples': 1, 'dried-mushrooms': 1, bouillon: 1 }, water: 5, energy: 3, output: 'dish-apple-mushroom-broth', description: '果酸、菌香和盐味挤在一起，是一碗猎奇但并不难喝的清汤。' },
+  { id: 'four-color-soup', name: '四色综合浓汤', appliance: 'electric-hotpot', ingredients: { potatoes: 1, 'canned-beans': 1, 'tomato-can': 1, 'dried-mushrooms': 1 }, water: 5, energy: 4, output: 'dish-four-color-soup', description: '红、褐、白三种颜色最后煮成同一种浓汤，胜在分量和层次。' },
+  { id: 'milk-oat-apple-pot', name: '奶香苹果燕麦锅', appliance: 'electric-hotpot', ingredients: { oats: 1, 'milk-powder': 1, 'fresh-apples': 1 }, water: 4, energy: 3, output: 'dish-milk-oat-apple-pot', description: '甜粥需要不停搅动，短暂盖过楼道里消毒水的气味。' },
+  { id: 'soy-meat-noodles', name: '酱油午餐肉汤面', appliance: 'electric-hotpot', ingredients: { 'instant-noodles': 1, 'luncheon-meat': 1, 'soy-sauce': 1 }, water: 4, energy: 3, output: 'dish-soy-meat-noodles', description: '没有蔬菜，肉片和酱油仍让方便面从应急食品变成一顿热饭。' },
+  { id: 'survival-feast', name: '四人份避难所杂烩', appliance: 'electric-hotpot', ingredients: { rice: 1, 'egg-powder': 1, 'dried-vegetables': 1, 'luncheon-meat': 1 }, water: 5, energy: 4, output: 'dish-survival-feast', description: '米、蛋、菜和肉全部下锅，足以让围坐的人暂时停止计算下一顿。' },
 ];
 
 export const RECIPES_BY_APPLIANCE: Record<CookingApplianceId, CookingRecipe[]> = {

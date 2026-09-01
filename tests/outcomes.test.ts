@@ -70,6 +70,27 @@ test('相同大类结局会根据关键经历产生不同文案变体', () => {
   assert.notEqual(soloEnding?.text, groupEnding?.text);
 });
 
+test('料理、供电、全图探索与广播接力分别形成独立结局', () => {
+  const kitchen = evacuationState();
+  kitchen.cookingSkill = 4;
+  kitchen.discoveredRecipes = Array.from({ length: 12 }, (_, index) => `recipe-${index}`);
+  assert.equal(chooseEvacuation(kitchen, 'survivor').state.outcome?.variantId, 'survivor-kitchen');
+
+  const powered = evacuationState();
+  powered.powerTrap = { level: 2, armed: true };
+  powered.shelter.generator = 2;
+  assert.equal(chooseEvacuation(powered, 'survivor').state.outcome?.variantId, 'survivor-gridkeeper');
+
+  const mapped = evacuationState();
+  for (const id of ['riverside-market', 'qinghe-clinic', 'pan-hardware', 'metro-line4', 'north-substation', 'east-terminal']) mapped.visited[id] = 1;
+  assert.equal(chooseEvacuation(mapped, 'survivor').state.outcome?.variantId, 'survivor-cartographer');
+
+  const relay = evacuationState();
+  relay.broadcasts = 6;
+  relay.flags.push('truth-transmitted');
+  assert.equal(chooseEvacuation(relay, 'truth').state.outcome?.variantId, 'truth-relay');
+});
+
 test('死亡会根据孤立、尸潮和天气形成不同终局', () => {
   const isolated = evacuationState();
   isolated.isolationNights = 3;

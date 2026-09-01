@@ -178,7 +178,7 @@ export default function GameApp() {
       ) : null}
 
       {notice && <div className="notice-toast" role="status">{notice}</div>}
-      {achievementNotice && <div className="achievement-toast" role="status" aria-live="polite" key={`achievement-${achievementNotice.id}`}><span>成就解锁</span><strong>{achievementNotice.names.join('、')}</strong></div>}
+      {achievementNotice && <div className="achievement-toast" role="status" aria-live="polite" key={`achievement-${achievementNotice.id}`}><i aria-hidden="true">◆</i><span>成就解锁 · 已存入跨轮回档案</span><strong>{achievementNotice.names.join('、')}</strong></div>}
       {changeCue && <div className="change-cue" role="status" aria-live="assertive" key={`change-${changeCue.id}`}>{changeCue.money && <strong className={changeCue.money.startsWith('-') ? 'loss' : 'gain'}>{changeCue.money}<small>现金变化</small></strong>}{changeCue.time && <strong className="time">{changeCue.time}<small>时间流逝</small></strong>}</div>}
 
       {modal === 'guide' && (

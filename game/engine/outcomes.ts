@@ -150,6 +150,34 @@ function survivorOutcome(state: GameState): Outcome {
       memoryEarned: 3, keyChoices: [`经历 ${state.debt.missedCollections} 次逾期催收`, '绕开公开登记'],
     };
   }
+  if (state.flags.includes('debt-cleared')) {
+    return {
+      id: 'survivor', variantId: 'survivor-debt-cleared', title: '普通结局 · 撕碎的催收名单',
+      text: `第${goal}天清晨，你从公开通道离开。检查员翻到那页催收名单时，只看见一个已经归零的余额；你没有靠逃跑摆脱债务，而是在封锁期间亲手结束了它。`,
+      memoryEarned: 4, keyChoices: ['封锁期间结清贷款', '选择普通撤离'],
+    };
+  }
+  if (state.cookingSkill >= 4 && state.discoveredRecipes.length >= 12) {
+    return {
+      id: 'survivor', variantId: 'survivor-kitchen', title: '普通结局 · 带走菜单的人',
+      text: `第${goal}天清晨，撤离队清点的不只有罐头和药。你把写满水量、火候与替代食材的菜单贴到公共厨房，最后一锅热饭分完后才离开。有人带走了菜，有人带走了做法。`,
+      memoryEarned: 4, keyChoices: [`掌握 ${state.discoveredRecipes.length} 道配方`, `料理技能 ${state.cookingSkill} 级`],
+    };
+  }
+  if (state.powerTrap.level >= 2 && state.shelter.generator >= 2) {
+    return {
+      id: 'survivor', variantId: 'survivor-gridkeeper', title: '普通结局 · 最后一段有电的楼道',
+      text: `第${goal}天，撤离车抵达时，这栋楼的警戒线和应急灯仍在工作。你断开陷阱、标好剩余回路，把线路图交给接替者后才走进通道。黑暗没有消失，但它始终没能占满这里。`,
+      memoryEarned: 4, keyChoices: [`电力陷阱 ${state.powerTrap.level} 级`, `供电改造 ${state.shelter.generator} 级`],
+    };
+  }
+  if (Object.values(state.visited).filter((visits) => visits > 0).length >= 6) {
+    return {
+      id: 'survivor', variantId: 'survivor-cartographer', title: '普通结局 · 地图折痕指向城外',
+      text: `第${goal}天清晨，公开通道拥堵，你沿自己反复修订的街区图带人绕过两处封锁。纸面已经被汗水磨软，每一道折痕却都对应一条真正走过的路。`,
+      memoryEarned: 4, keyChoices: ['踏查全部六处地点', '用熟悉路线协助撤离'],
+    };
+  }
   if (trustedNpcCount(state) >= 2) {
     return {
       id: 'survivor', variantId: 'survivor-community', title: '普通结局 · 一起走过西侧通道',
@@ -179,6 +207,20 @@ function survivorOutcome(state: GameState): Outcome {
 }
 
 function truthOutcome(state: GameState): Outcome {
+  if (state.broadcasts >= 6) {
+    return {
+      id: 'truth', variantId: 'truth-relay', title: '隐藏结局 · 六段接力广播',
+      text: '证据没有依赖单一发射点。六次广播建立的接力频段把数据拆成校验片段，从屋顶、诊所和变电站依次送出。封锁方切断其中两路时，另外四路已经完成重组。',
+      memoryEarned: 6, keyChoices: [`完成 ${state.broadcasts} 次有效广播`, '建立分布式证据接力'],
+    };
+  }
+  if (state.powerTrap.level >= 2 && state.shelter.generator >= 2) {
+    return {
+      id: 'truth', variantId: 'truth-powered-route', title: '隐藏结局 · 电流照亮维修通道',
+      text: '你把防线回路临时改成中继供电，维修通道的旧指示灯一盏盏亮起。证据完成发送后，同伴沿着这条由备用电维持的路线撤离，没有任何一段黑暗需要靠猜。',
+      memoryEarned: 6, keyChoices: ['主动防线改作中继供电', '护送证据离城'],
+    };
+  }
   if (trustedNpcCount(state) >= 3) {
     return {
       id: 'truth', variantId: 'truth-community', title: '隐藏结局 · 四个人的证词',

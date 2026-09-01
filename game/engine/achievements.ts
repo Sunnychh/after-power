@@ -1,6 +1,8 @@
 import { ACHIEVEMENTS, ACHIEVEMENT_MAP, type AchievementDefinition } from '../data/achievements.ts';
 import { LOCATIONS, NPCS } from '../data/world.ts';
+import { ITEM_MAP } from '../data/items.ts';
 import type { AchievementId, GameState, MetaState, OutcomeId } from '../types.ts';
+import { inventoryCount } from './inventory.ts';
 
 export interface AchievementProgress {
   current: number;
@@ -27,7 +29,18 @@ function rawProgress(id: AchievementId, state: GameState | null, meta: MetaState
       return Math.max(0, ...Object.values(state!.explorationSkills).map((skill) => skill.level));
     case 'first-recipe':
     case 'recipe-collector':
+    case 'recipe-master':
       return new Set(state!.discoveredRecipes).size;
+    case 'pantry-variety':
+      return Object.values(ITEM_MAP).filter((item) => (item.category === '食物' || item.category === '饮水') && inventoryCount(state!.inventory, item.id) > 0).length;
+    case 'shelter-ready':
+      return state!.shelter.integrity >= 90 && state!.shelter.reinforcement >= 2 ? 1 : 0;
+    case 'all-rounder':
+      return Object.values(state!.explorationSkills).filter((skill) => skill.level >= 2).length;
+    case 'broadcast-circle':
+      return state!.broadcasts;
+    case 'long-haul':
+      return state!.phase !== 'prep' ? state!.survivalDay : 0;
     case 'seasoned-cook':
       return state!.cookingSkill;
     case 'first-alliance':

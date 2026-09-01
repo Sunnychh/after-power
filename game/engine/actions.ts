@@ -330,7 +330,10 @@ export function repayDebt(state: GameState, mode: 'minimum' | 'all'): Result {
   next.feedback.push({ id: `${next.runId}-debt-${next.logs.length}`, label: '债务', delta: -amount, reason: '偿还贷款' });
   const cleared = next.debt!.balance <= 0;
   next.logs.push(createLog(next, cleared ? '债务结清' : '偿还贷款', cleared ? `你支付 ¥${amount}，删除了催收终端上的最后一笔余额。此后的危险判定不再受到债务影响。` : `你支付 ¥${amount}，剩余债务 ¥${next.debt!.balance}。催收终端确认收款，但倒计时仍在继续。`, cleared ? 'good' : 'system'));
-  if (cleared) next.debt = undefined;
+  if (cleared) {
+    next.debt = undefined;
+    addFlag(next, 'debt-cleared');
+  }
   return completeTimedAction(next, 30, 'survival:repay-debt');
 }
 

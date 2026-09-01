@@ -68,6 +68,7 @@ function gainSkill(state: GameState, skill: ExplorationSkillId, amount: number):
   const level = Math.min(5, Math.floor(xp / 3));
   state.explorationSkills[skill] = { xp, level };
   state.feedback.push({ id: `${state.runId}-skill-${skill}-${state.logs.length}-${xp}`, label: EXPLORATION_SKILL_LABELS[skill], delta: amount, reason: '探索经验' });
+  if (level > before.level) state.feedback.push({ id: `${state.runId}-skill-level-${skill}-${level}`, label: '技能升级', delta: level, reason: `${EXPLORATION_SKILL_LABELS[skill]}提升到 ${level} 级` });
   return level > before.level ? `${EXPLORATION_SKILL_LABELS[skill]}提升到 ${level} 级。` : `${EXPLORATION_SKILL_LABELS[skill]}经验 +${amount}。`;
 }
 

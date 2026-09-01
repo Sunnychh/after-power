@@ -32,7 +32,7 @@ import {
   visitStore,
   type PrepActionId,
 } from '../game/engine/actions.ts';
-import { availableCookingIngredients, cookingPreview, cookingSelectionInsight, FURNITURE_ACTION_MINUTES, furnitureActionDisabledReason, performFurnitureAction, selectedCookingDisabledReason, type FurnitureActionId } from '../game/engine/furniture.ts';
+import { availableCookingIngredients, cookingPreview, cookingSelectionInsight, FURNITURE_ACTION_MINUTES, furnitureActionDisabledReason, performFurnitureAction, selectedCookingDisabledReason, type CookingWaterSource, type FurnitureActionId } from '../game/engine/furniture.ts';
 import { inventoryCount } from '../game/engine/inventory.ts';
 import { isNpcUnlocked } from '../game/engine/npcs.ts';
 import { debtRiskBonus } from '../game/engine/loan.ts';
@@ -101,6 +101,7 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
   const [briefTab, setBriefTab] = useState<'today' | 'skills' | 'people'>('today');
   const [cookingAppliance, setCookingAppliance] = useState<FurnitureActionId | null>(null);
   const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
+  const [selectedWaterSource, setSelectedWaterSource] = useState<Exclude<CookingWaterSource, 'auto'>>('none');
   const event = state.currentEventId ? EVENT_MAP[state.currentEventId] : undefined;
   const difficultyConfig = DIFFICULTY_MAP[state.difficulty];
   const activeWish = state.dailyPlan ? DAILY_WISH_MAP[state.dailyPlan.wishId] : undefined;
@@ -523,7 +524,12 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
           )}
           {state.feedback.length > 0 && (
             <div className="feedback-strip" aria-live="polite">
-              {state.feedback.slice(-6).map((item) => <span key={item.id} className={item.label === '时间' ? 'time' : item.delta < 0 || (item.label === '饮食厌倦' && item.delta > 0) ? 'negative' : 'positive'}>{item.label} {item.label === '时间' ? `+${formatDuration(item.delta)}` : `${item.delta > 0 ? '+' : ''}${item.delta}`}<small>{item.reason}</small></span>)}
+              {state.feedback.slice(-8).map((item) => {
+                const milestone = item.label === '新配方' || item.label === '技能升级' || item.reason.includes('提升到');
+                const loot = item.reason === '现场所得' || item.reason === '本次探索带回';
+                const tone = item.label === '时间' ? 'time' : milestone ? 'milestone' : loot ? 'loot' : item.delta < 0 || (item.label === '饮食厌倦' && item.delta > 0) ? 'negative' : 'positive';
+                return <span key={item.id} className={tone}>{item.label} {item.label === '时间' ? `+${formatDuration(item.delta)}` : `${item.delta > 0 ? '+' : ''}${item.delta}`}<small>{item.reason}</small></span>;
+              })}
             </div>
           )}
 
@@ -792,14 +798,20 @@ export function GameView({ state, settings, savedAt, onResult, onCommit, onSetti
         const applianceName = cookingAppliance === 'gas-stove' ? '燃气炉' : cookingAppliance === 'microwave' ? '微波炉' : '电火锅';
         const ingredients = availableCookingIngredients(state);
         const selectedSet = new Set(selectedIngredients);
-        const insight = cookingSelectionInsight(state, cookingAppliance, selectedIngredients);
-        const disabled = selectedCookingDisabledReason(state, cookingAppliance, selectedIngredients);
+        const insight = cookingSelectionInsight(state, cookingAppliance, selectedIngredients, selectedWaterSource);
+        const disabled = selectedCookingDisabledReason(state, cookingAppliance, selectedIngredients, selectedWaterSource);
         return (
-          <Modal title={`${applianceName} · 自选食材`} onClose={() => { setCookingAppliance(null); setSelectedIngredients([]); }} footer={<button className="primary-inline" type="button" disabled={Boolean(disabled)} title={disabled ?? undefined} onClick={() => run(performFurnitureAction(state, cookingAppliance, selectedIngredients))}>{disabled ?? `开始烹饪 · ${selectedIngredients.length} 种食材`}</button>}>
-            <p className="store-description">逐项选择这次真正投入锅里的食材。未成功做过的组合不会提前显示菜名；凭搭配直觉和风险提示决定是否开火，失败也会积累料理经验。</p>
+          <Modal title={`${applianceName} · 自选食材`} onClose={() => { setCookingAppliance(null); setSelectedIngredients([]); setSelectedWaterSource('none'); }} footer={<button className="primary-inline" type="button" disabled={Boolean(disabled)} title={disabled ?? undefined} onClick={() => run(performFurnitureAction(state, cookingAppliance, selectedIngredients, selectedWaterSource))}>{disabled ?? `开始烹饪 · ${selectedIngredients.length + (selectedWaterSource === 'none' ? 0 : 1)} 项原料`}</button>}>
+            <p className="store-description">逐项选择真正投入锅里的食材与水源。水不是后台自动补齐的隐形材料；可以从储水器取净水，也可以消耗瓶装水。未成功做过的组合不会提前显示菜名。</p>
             <div className={`cooking-selection-summary insight-${insight.status}`} aria-live="polite">
-              <span>已选 <b>{selectedIngredients.length}</b> 种</span>
+              <span>已选 <b>{selectedIngredients.length + (selectedWaterSource === 'none' ? 0 : 1)}</b> 项</span>
               <span>{insight.label}</span>
+            </div>
+            <div className="water-source-picker" role="group" aria-label="料理用水来源">
+              <span>料理用水</span>
+              <button type="button" className={selectedWaterSource === 'none' ? 'selected' : ''} aria-pressed={selectedWaterSource === 'none'} onClick={() => setSelectedWaterSource('none')}>不加水</button>
+              <button type="button" className={selectedWaterSource === 'shelter' ? 'selected' : ''} aria-pressed={selectedWaterSource === 'shelter'} disabled={state.shelter.water < 1} onClick={() => setSelectedWaterSource('shelter')}>储水器 · {state.shelter.water} 单位</button>
+              <button type="button" className={selectedWaterSource === 'bottle' ? 'selected' : ''} aria-pressed={selectedWaterSource === 'bottle'} disabled={inventoryCount(state.inventory, 'water-bottle') < 1} onClick={() => setSelectedWaterSource('bottle')}>瓶装水 · {inventoryCount(state.inventory, 'water-bottle')} 瓶</button>
             </div>
             <div className="ingredient-grid">
               {ingredients.map((item) => (
