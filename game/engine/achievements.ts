@@ -46,10 +46,29 @@ function rawProgress(id: AchievementId, state: GameState | null, meta: MetaState
     case 'first-alliance':
     case 'full-coalition':
       return NPCS.filter((npc) => state!.flags.includes(`npc-allied:${npc.id}`)).length;
+    case 'easy-survivor':
+      return state!.difficulty === 'easy' && state!.outcome && state!.outcome.id !== 'death' ? 1 : 0;
+    case 'easy-good-life':
+      return state!.difficulty === 'easy' && new Set(state!.discoveredRecipes).size >= 12 && state!.stats.morale >= 70 ? 1 : 0;
+    case 'easy-coalition':
+      return state!.difficulty === 'easy' ? NPCS.filter((npc) => state!.flags.includes(`npc-allied:${npc.id}`)).length : 0;
+    case 'normal-survivor':
+      return state!.difficulty === 'normal' && state!.outcome && state!.outcome.id !== 'death' ? 1 : 0;
+    case 'normal-manual-survivor':
+      return state!.difficulty === 'normal' && !state!.autoRations && !state!.flags.includes('auto-rations-used') && state!.outcome && state!.outcome.id !== 'death' ? 1 : 0;
+    case 'normal-balanced':
+      return state!.difficulty === 'normal'
+        && state!.outcome && state!.outcome.id !== 'death'
+        && Math.min(state!.stats.satiety, state!.stats.hydration, state!.stats.health, state!.stats.morale) >= 45
+        && state!.shelter.integrity >= 50 ? 1 : 0;
     case 'live-wire':
       return state!.difficulty === 'hard' ? state!.powerTrap.level : 0;
     case 'hard-survivor':
       return state!.difficulty === 'hard' && state!.outcome && state!.outcome.id !== 'death' ? 1 : 0;
+    case 'hard-debt-cleared':
+      return state!.difficulty === 'hard' && state!.flags.includes('debt-cleared') && state!.outcome && state!.outcome.id !== 'death' ? 1 : 0;
+    case 'difficulty-triad':
+      return ['easy-survivor', 'normal-survivor', 'hard-survivor'].filter((achievementId) => meta.achievements.includes(achievementId as AchievementId)).length;
     case 'ending-death':
       return knownEndings(meta, state).includes('death') ? 1 : 0;
     case 'ending-survivor':

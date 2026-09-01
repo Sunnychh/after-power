@@ -136,7 +136,7 @@ export function createInitialState(
     storePurchases: {},
     relationships: Object.fromEntries(NPCS.map((npc) => [npc.id, 0])),
     injuries: [],
-    flags: unlocked.map((ability) => `ability:${ability}`),
+    flags: [...unlocked.map((ability) => `ability:${ability}`), ...(autoRations ? ['auto-rations-used'] : [])],
     seenEvents: [],
     visited: {},
     logs: [],

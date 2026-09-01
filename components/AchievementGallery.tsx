@@ -5,6 +5,7 @@ import { achievementProgress } from '../game/engine/achievements.ts';
 import type { GameState, MetaState } from '../game/types.ts';
 
 export function AchievementGallery({ meta, state }: { meta: MetaState; state: GameState | null }) {
+  const difficultyLabel = { easy: '简易专属', normal: '标准专属', hard: '艰难专属', 'all-three': '跨难度' } as const;
   return (
     <div className="achievement-gallery">
       <header className="achievement-summary">
@@ -19,7 +20,7 @@ export function AchievementGallery({ meta, state }: { meta: MetaState; state: Ga
           return (
             <article key={achievement.id} className={unlocked ? 'unlocked' : 'locked'}>
               <header>
-                <span>{concealed ? '加密记录' : achievement.category}</span>
+                <span>{concealed ? '加密记录' : achievement.difficulty ? `${difficultyLabel[achievement.difficulty]} · ${achievement.category}` : achievement.category}</span>
                 <b>{unlocked ? '已解锁' : `${progress.current}/${progress.target}`}</b>
               </header>
               <h3>{concealed ? '████████' : achievement.name}</h3>

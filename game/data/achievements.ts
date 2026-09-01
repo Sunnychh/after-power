@@ -1,4 +1,4 @@
-import type { AchievementId } from '../types.ts';
+import type { AchievementId, DifficultyId } from '../types.ts';
 
 export type AchievementCategory = '生存' | '探索' | '料理' | '关系' | '挑战' | '结局';
 
@@ -10,6 +10,7 @@ export interface AchievementDefinition {
   requirement: string;
   target: number;
   hidden?: boolean;
+  difficulty?: DifficultyId | 'all-three';
 }
 
 /**
@@ -138,12 +139,67 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     target: 4,
   },
   {
+    id: 'easy-survivor',
+    name: '从容离城',
+    category: '挑战',
+    description: '你在宽松的物资条件里走完了一轮，也看清了这座城市的基本规则。',
+    requirement: '在简易难度达成任意非死亡结局。',
+    target: 1,
+    difficulty: 'easy',
+  },
+  {
+    id: 'easy-good-life',
+    name: '封锁期也要好好吃饭',
+    category: '料理',
+    description: '充足物资没有变成一排罐头，而是被你做成了能安抚人心的菜单。',
+    requirement: '简易难度中发现 12 道料理，并让精神达到 70。',
+    target: 1,
+    difficulty: 'easy',
+  },
+  {
+    id: 'easy-coalition',
+    name: '门一直为人留着',
+    category: '关系',
+    description: '你把相对从容的时间用来理解每一种立场，四个人最终都坐到了桌边。',
+    requirement: '简易难度中与全部 4 名具名幸存者结盟。',
+    target: 4,
+    difficulty: 'easy',
+  },
+  {
+    id: 'normal-survivor',
+    name: '标准答案不存在',
+    category: '挑战',
+    description: '没有额外宽容，也没有极端惩罚；你靠自己的取舍走出了封锁区。',
+    requirement: '在标准难度达成任意非死亡结局。',
+    target: 1,
+    difficulty: 'normal',
+  },
+  {
+    id: 'normal-manual-survivor',
+    name: '每一口都由自己决定',
+    category: '挑战',
+    description: '整轮没有把配给交给自动规则，你亲自承担了每次补给的时机与代价。',
+    requirement: '关闭夜间自动补充，在标准难度达成非死亡结局。',
+    target: 1,
+    difficulty: 'normal',
+  },
+  {
+    id: 'normal-balanced',
+    name: '不是勉强撑到终点',
+    category: '生存',
+    description: '撤离时身体、心态和避难所都还留有余量，这是一场真正受控的生存。',
+    requirement: '标准难度达成非死亡结局时，饱腹、水分、健康、精神均不低于 45，避难所完整度不低于 50。',
+    target: 1,
+    difficulty: 'normal',
+  },
+  {
     id: 'live-wire',
     name: '让电流守门',
     category: '挑战',
     description: '在最紧张的物资条件下，你把备用电变成了主动防线。',
     requirement: '艰难难度中把电力陷阱升级到 2 级。',
     target: 2,
+    difficulty: 'hard',
   },
   {
     id: 'hard-survivor',
@@ -152,6 +208,25 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     description: '高压围攻与稀缺库存都没能截断这轮记录。',
     requirement: '在艰难难度达成任意非死亡结局。',
     target: 1,
+    difficulty: 'hard',
+  },
+  {
+    id: 'hard-debt-cleared',
+    name: '催收者没能等到你倒下',
+    category: '挑战',
+    description: '稀缺、尸潮和利息同时压来，你仍在离城前亲手清掉了那笔贷款。',
+    requirement: '艰难难度中结清开局贷款，并达成非死亡结局。',
+    target: 1,
+    difficulty: 'hard',
+  },
+  {
+    id: 'difficulty-triad',
+    name: '三种活法',
+    category: '挑战',
+    description: '从容、克制与高压都留下了不同答案；难度不再只是标题页上的一个选项。',
+    requirement: '分别在简易、标准和艰难难度达成非死亡结局。',
+    target: 3,
+    difficulty: 'all-three',
   },
   {
     id: 'ending-death',

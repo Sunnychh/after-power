@@ -21,13 +21,17 @@ function meta(): MetaState {
 }
 
 test('成就定义数量、ID 与名称保持唯一且覆盖六类玩法', () => {
-  assert.equal(ACHIEVEMENTS.length, 21);
+  assert.equal(ACHIEVEMENTS.length, 29);
   assert.equal(new Set(ACHIEVEMENTS.map((achievement) => achievement.id)).size, ACHIEVEMENTS.length);
   assert.equal(new Set(ACHIEVEMENTS.map((achievement) => achievement.name)).size, ACHIEVEMENTS.length);
   assert.deepEqual(
     [...new Set(ACHIEVEMENTS.map((achievement) => achievement.category))].sort(),
     ['关系', '挑战', '探索', '料理', '生存', '结局'].sort(),
   );
+  for (const difficulty of ['easy', 'normal', 'hard'] as const) {
+    assert.equal(ACHIEVEMENTS.filter((achievement) => achievement.difficulty === difficulty).length, 3);
+  }
+  assert.equal(ACHIEVEMENTS.filter((achievement) => achievement.difficulty === 'all-three').length, 1);
 });
 
 test('当前局达到探索、料理与结盟条件时自动解锁，重复判定不会重复发放', () => {
@@ -70,6 +74,49 @@ test('艰难难度主动防线与非死亡结局拥有独立成就', () => {
   assert.ok(ids.includes('live-wire'));
   assert.ok(ids.includes('hard-survivor'));
   assert.ok(ids.includes('ending-survivor'));
+});
+
+test('三种难度各有三项专属成就，跨难度生还会解锁总徽章', () => {
+  const easy = createInitialState('achievement-easy', [], 0, 'easy');
+  easy.phase = 'ended';
+  easy.outcome = { id: 'survivor', variantId: 'easy-test', title: '生还', text: '测试。', memoryEarned: 1, keyChoices: [] };
+  easy.stats.morale = 75;
+  easy.discoveredRecipes = Array.from({ length: 12 }, (_, index) => `easy-recipe-${index}`);
+  for (const npc of ['lin-zhou', 'pan-yue', 'qiu-lan', 'chen-meng']) easy.flags.push(`npc-allied:${npc}`);
+  const easyResult = evaluateAchievements(meta(), easy);
+  for (const id of ['easy-survivor', 'easy-good-life', 'easy-coalition'] as const) assert.ok(easyResult.unlocked.some((entry) => entry.id === id));
+
+  const normal = createInitialState('achievement-normal', [], 0, 'normal', false);
+  normal.phase = 'ended';
+  normal.outcome = { id: 'truth', variantId: 'normal-test', title: '真相', text: '测试。', memoryEarned: 1, keyChoices: [] };
+  normal.stats = { satiety: 60, hydration: 60, health: 60, morale: 60, stamina: 20 };
+  normal.shelter.integrity = 60;
+  const normalResult = evaluateAchievements(easyResult.meta, normal);
+  for (const id of ['normal-survivor', 'normal-manual-survivor', 'normal-balanced'] as const) assert.ok(normalResult.unlocked.some((entry) => entry.id === id));
+
+  const toggledNormal = structuredClone(normal);
+  toggledNormal.flags.push('auto-rations-used');
+  assert.equal(evaluateAchievements(easyResult.meta, toggledNormal).unlocked.some((entry) => entry.id === 'normal-manual-survivor'), false);
+
+  const hard = createInitialState('achievement-hard-debt', [], 0, 'hard');
+  hard.phase = 'ended';
+  hard.flags.push('debt-cleared');
+  hard.outcome = { id: 'survivor', variantId: 'hard-test', title: '生还', text: '测试。', memoryEarned: 1, keyChoices: [] };
+  const hardResult = evaluateAchievements(normalResult.meta, hard);
+  for (const id of ['hard-survivor', 'hard-debt-cleared', 'difficulty-triad'] as const) assert.ok(hardResult.unlocked.some((entry) => entry.id === id));
+  assert.equal(achievementProgress('difficulty-triad', hard, hardResult.meta).current, 3);
+});
+
+test('难度专属成就不会被其他难度的相同状态误解锁', () => {
+  const easy = createInitialState('achievement-exclusive', [], 0, 'easy', false);
+  easy.phase = 'ended';
+  easy.flags.push('debt-cleared');
+  easy.stats = { satiety: 90, hydration: 90, health: 90, morale: 90, stamina: 90 };
+  easy.shelter.integrity = 100;
+  easy.powerTrap = { level: 3, armed: true };
+  easy.outcome = { id: 'survivor', variantId: 'exclusive-test', title: '生还', text: '测试。', memoryEarned: 1, keyChoices: [] };
+  const ids = evaluateAchievements(meta(), easy).unlocked.map((entry) => entry.id);
+  for (const id of ['normal-survivor', 'normal-manual-survivor', 'normal-balanced', 'live-wire', 'hard-survivor', 'hard-debt-cleared'] as const) assert.equal(ids.includes(id), false);
 });
 
 test('丰富物资、料理、技能、广播与长期生存都会产生可见里程碑', () => {
